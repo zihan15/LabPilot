@@ -14,6 +14,8 @@
 | Start/stop known lab components | In addition, the owner-only 0600 instance-pin file below, with the exact six existing IDs in source-defined slot order and matching Name tags. Missing/mismatched pins disable actions. |
 | New lab provisioning, database deployment, end-to-end test/evidence/cleanup | **Not implemented** by this repository; an approved request is a human handoff, not an executor. |
 
+**Why this exists:** This is a vibe-coded, AI-assisted demo of a Hermes harness agent's potential in a lab workflow, not a certified portal, production authorization layer, or fully automated build → test → prove → cleanup system. A portal chat request launches a **new Hermes CLI subprocess**, not a continuation of a Telegram/gateway conversation. The app adds per-user ownership, one-active-run limits, per-message turn/time budgets, sanitized progress and screenshot access checks; the gateway follows its own configured conversation and approval lifecycle. Those app checks are useful demo guardrails, **not** separate OS users, scoped IAM, token quotas, or mandatory cloud approval. Full portal admins retain the server account's effective host/cloud access and can bypass request tickets. The current pilot's headless Hermes approval mode denies gated commands rather than asking in the portal; check the new host's own config before relying on that behavior. Details: [portal agent versus Hermes gateway](ARCHITECTURE.md#portal-agent-versus-hermes-gateway).
+
 For a trusted private pilot, from a **fresh checkout**:
 
 ```sh

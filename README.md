@@ -1,6 +1,6 @@
 # LabPilot portal
 
-A **private, loopback-only operating pilot** for two existing DAM labs. This repository is the portal (`server.py` plus `static/`), **not** the older `../app.py` workbench. It shows timestamped AWS EC2/CloudFormation observations, keeps per-user Hermes conversations, records portal activity and requests, and offers exact pinned-instance start/stop controls. It does not check DAM product health or automatically provision new environments.
+A **vibe-coded (AI-assisted), private proof-of-concept portal** built to showcase what a Hermes harness agent can do in a DAM engineering-lab workflow. It is a demonstration surface for agent-led investigation, visible tool progress, evidence handoff and bounded existing-lab actions—not a finished, independently secured product or an automated issue-reproduction harness. This repository is the portal (`server.py` plus `static/`), **not** the older `../app.py` workbench. It shows timestamped AWS EC2/CloudFormation observations, keeps per-user Hermes conversations, records portal activity and requests, and offers exact pinned-instance start/stop controls. It does not check DAM product health or automatically provision new environments.
 
 > **Trust boundary:** An admin-created Hermes session has the host Hermes profile, filesystem and broad AWS `AdministratorAccess`. The tester safe-mode worker is bounded by tool selection, **not** an OS/IAM sandbox. Do not publish this service or give untrusted users accounts. A GitHub repository is source distribution, not a deployable security boundary.
 
@@ -16,6 +16,10 @@ A **private, loopback-only operating pilot** for two existing DAM labs. This rep
 | Activity / users | Own portal events and runs | Filtered cross-user metadata; user management | Cross-user chat text/steps are withheld. Portal does not ingest other Hermes channels. Password-only login; no SSO/MFA. |
 
 The environment form accepts standalone MX or MXHA, 0–4 requested gateways, an existing-lab attachment or a new lab, MX product version and purpose. The derived `LabPilot-{user}-{topology}-{version}` is **proposed**, not allocated; slug collisions are possible. Database deployment is a separate, unavailable workflow. The form has no TTL or spend controls, and neither limit is enforced. Legacy versionless or note-only requests need resubmission; historical limits on older tickets are only displayed.
+
+## Portal agent versus a normal Hermes gateway session
+
+The portal does **not** attach to your Telegram/gateway conversation. Each message starts a separate `hermes chat` CLI subprocess on the portal host. New admin conversations link and resume their **own** Hermes CLI history; tester conversations pass only recent portal messages. Gateway conversations follow the gateway's configured tools, context and approval path instead. The portal adds its own account/session checks, one-active-run limit, per-run time/turn caps and owner-scoped progress/artifacts; these are **not token quotas or a sandbox**. New admin sessions still inherit the host Hermes profile, filesystem and AWS authority and can act outside request tickets. Tester safe mode restricts model tools but shares the host OS identity. On this pilot, headless command approvals deny gated commands rather than opening a portal approval card. See [ARCHITECTURE.md](ARCHITECTURE.md#portal-agent-versus-hermes-gateway) for the exact launch flags and limits.
 
 ## Private local run
 
@@ -33,7 +37,7 @@ The server binds `127.0.0.1:8090` regardless of caller-facing address. On a trus
 ssh -N -L 8090:127.0.0.1:8090 <ssh-user>@<private-host>
 ```
 
-Open `http://127.0.0.1:8090` locally. A private-host owner account may already exist in its runtime database; **no credential is included here**. An existing admin can add users in **Users**, or a trusted host operator can run `python server.py create-user --username <name>` and enter a 16+ character password at the prompt (tester role by default). Do not bootstrap a second host by copying a private database, credentials or pin file into the repository. `GET /api/health` only confirms the HTTP process is ready, not AWS, Hermes or product health.
+Open `http://127.0.0.1:8090` locally. A private-host owner account may already exist in its runtime database; **no credential is included here**. An existing admin can add users in **Users**, or a trusted host operator can run `python server.py create-user --username your-username` and enter a 16+ character password at the prompt (tester role by default). Do not bootstrap a second host by copying a private database, credentials or pin file into the repository. `GET /api/health` only confirms the HTTP process is ready, not AWS, Hermes or product health.
 
 ## Guides and architecture
 
