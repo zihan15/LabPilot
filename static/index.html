@@ -70,6 +70,12 @@
             <span class="nav-full">Access requests</span
             ><span class="nav-mobile">Access</span>
           </button>
+          <button type="button" class="nav-item" data-view="skill-proposals">
+            <span class="nav-full">Skill proposals</span><span class="nav-mobile">Skills</span>
+          </button>
+          <button type="button" class="nav-item" data-view="files" id="files-nav" hidden>
+            <span class="nav-full">Files</span><span class="nav-mobile">Files</span>
+          </button>
           <button type="button" class="nav-item" data-view="users" id="users-nav" hidden>
             <span class="nav-full">Users</span><span class="nav-mobile">Users</span>
           </button>
@@ -168,7 +174,7 @@
                 aria-label="Session conversation"
               >
                 <div id="chat-header" class="chat-header"></div>
-                <div class="session-access"><button id="grant-login" type="button" class="button outline" hidden>Grant website login</button></div>
+                <div class="session-access"><button id="suggest-session-skill" type="button" class="button outline" hidden>Suggest skill from this session</button><button id="grant-login" type="button" class="button outline" hidden>Grant website login</button></div>
                 <div id="messages" class="messages" aria-live="polite"></div>
                 <section id="run-progress" class="run-progress" aria-label="Session run progress" aria-live="polite" hidden></section>
                 <form id="message-form" class="composer" hidden>
@@ -236,7 +242,7 @@
               <div>
                 <strong>New environment · admin-guided fulfillment</strong
                 ><span
-                  >Specify topology, version and attachment. Approval opens a full Hermes admin review; no automatic launch, spend ceiling or expiry enforcement exists.</span
+                  >Specify topology, optional database/OS versions and attachment. Database requests are for human review only; no automatic deployment, spend ceiling or expiry enforcement exists.</span
                 >
               </div>
               <button
@@ -252,6 +258,49 @@
               <div class="panel-heading"><h2>Access requests</h2></div>
               <div id="requests"></div>
             </section>
+          </section>
+          <section id="files-view" class="view" hidden>
+            <div class="page-heading">
+              <div><h1>Private files</h1><p>Admin-only upload, list and download. Maximum 256 MiB per file. Do not upload credentials, secret files, or private keys. There is no virus scanning; inspect files before use. Uploading never executes a file.</p></div>
+              <button id="refresh-files" class="button outline" type="button">Refresh</button>
+            </div>
+            <section class="panel" aria-labelledby="files-heading">
+              <div class="panel-heading"><h2 id="files-heading">Admin uploads</h2></div>
+              <form id="file-form" class="file-form">
+                <label for="file-input">Choose a non-secret file (256 MiB maximum)</label>
+                <input id="file-input" type="file" required />
+                <button type="submit" class="button primary">Upload file</button>
+                <p id="file-error" class="form-error" role="alert" hidden></p>
+              </form>
+              <div id="files" aria-live="polite"></div>
+            </section>
+          </section>
+          <section id="skill-proposals-view" class="view" hidden>
+            <div class="page-heading">
+              <div><h1>Skill proposals</h1><p>Generate a draft from one of your Hermes sessions, preview it privately, then choose whether to submit it for human review. No skill is installed automatically.</p></div>
+              <button id="refresh-proposals" class="button outline" type="button">Refresh</button>
+            </div>
+            <div class="proposal-layout">
+              <section class="panel proposal-panel" aria-labelledby="proposal-form-heading">
+                <div class="panel-heading"><h2 id="proposal-form-heading">Generate from a session</h2></div>
+                <form id="proposal-form">
+                  <label for="proposal-session">Your session</label><select id="proposal-session" required><option value="">Choose a session</option></select>
+                  <p class="muted">The agent drafts a reusable lesson from this session. Review its wording and evidence before sharing it with admins; no transcript or tool output is shown here.</p>
+                  <button type="submit" class="button primary">Generate draft</button>
+                </form>
+                <div id="proposal-preview" aria-live="polite"></div>
+              </section>
+              <div class="proposal-history">
+                <section id="proposal-review-section" class="panel" hidden aria-labelledby="proposal-review-heading">
+                  <div class="panel-heading"><h2 id="proposal-review-heading">Pending review</h2></div>
+                  <div id="proposal-review" aria-live="polite"></div>
+                </section>
+                <section class="panel" aria-labelledby="proposal-history-heading">
+                  <div class="panel-heading"><h2 id="proposal-history-heading">Proposals and decisions</h2></div>
+                  <div id="skill-proposals" aria-live="polite"></div>
+                </section>
+              </div>
+            </div>
           </section>
           <section id="users-view" class="view" hidden>
             <div class="page-heading">

@@ -9,6 +9,10 @@
     sessions: [],
     runs: [],
     requests: [],
+    proposals: [],
+    files: [],
+    proposalTicket: 0,
+    drafting: false,
     users: [],
     events: [],
     activityTicket: 0,
@@ -146,6 +150,10 @@
     state.sessions = [];
     state.runs = [];
     state.requests = [];
+    state.proposals = [];
+    state.files = [];
+    state.proposalTicket++;
+    state.drafting = false;
     state.users = [];
     state.events = [];
     state.activityTicket++;
@@ -175,6 +183,10 @@
       "messages",
       "run-progress",
       "requests",
+      "skill-proposals",
+      "proposal-preview",
+      "proposal-review",
+      "files",
       "users",
       "activity-events",
       "chat-header",
@@ -184,10 +196,22 @@
     $("observation-stamp").textContent = "Waiting for AWS observation";
     $("message-form").hidden = true;
     $("grant-login").hidden = true;
+    $("suggest-session-skill").hidden = true;
+    $("suggest-session-skill").disabled = false;
     document.querySelector(".chat-panel").classList.add("is-empty");
     $("notice").hidden = true;
     $("notice").textContent = "";
     $("users-nav").hidden = true;
+    $("files-nav").hidden = true;
+    $("file-input").value = "";
+    $("file-form").querySelector('button[type="submit"]').disabled = false;
+    $("file-error").textContent = "";
+    $("file-error").hidden = true;
+    $("proposal-review-section").hidden = true;
+    $("proposal-review").hidden = true;
+    $("proposal-session").value = "";
+    $("proposal-session").replaceChildren();
+    $("proposal-form").querySelector('button[type="submit"]').disabled = false;
     $("filter-user-label").hidden = true;
     for (const id of ["filter-user", "filter-lab", "filter-kind", "filter-status"])
       $(id).value = "";
@@ -215,6 +239,7 @@
     $("login").hidden = true;
     $("app").hidden = false;
     $("users-nav").hidden = !isAdmin();
+    $("files-nav").hidden = !isAdmin();
     $("filter-user-label").hidden = !isAdmin();
     view("overview");
     await Promise.all([
@@ -223,12 +248,13 @@
       loadSessions(),
       loadRuns(),
       loadRequests(),
+      loadProposals(),
       loadActivity(),
-      ...(isAdmin() ? [loadUsers()] : []),
+      ...(isAdmin() ? [loadUsers(), loadFiles()] : []),
     ]);
   }
   function view(name) {
-    if (!state.me || (name === "users" && !isAdmin())) return;
+    if (!state.me || (["users", "files"].includes(name) && !isAdmin())) return;
     for (const section of document.querySelectorAll(".view"))
       section.hidden = section.id !== `${name}-view`;
     for (const button of document.querySelectorAll(".nav-item")) {
@@ -243,9 +269,141 @@
       sessions: "Sessions",
       activity: "Activity",
       access: "Access requests",
+      "skill-proposals": "Skill proposals",
+      files: "Files",
       users: "Users",
     }[name];
     $("main").focus({ preventScroll: true });
+  }
+  async function loadProposals() {
+    const epoch = state.authEpoch, ticket = ++state.proposalTicket;
+    try {
+      const proposals = rows(await api("/api/skill-proposals"), "proposals");
+      if (epoch !== state.authEpoch || ticket !== state.proposalTicket) return;
+      state.proposals = proposals.filter((p) => p.user === state.me.username || isAdmin() && !["draft", "discarded"].includes(p.status));
+      renderProposals();
+    } catch (err) {
+      if (state.me && epoch === state.authEpoch && ticket === state.proposalTicket)
+        $("skill-proposals").replaceChildren(empty(`Proposals unavailable: ${err.message}`, true));
+    }
+  }
+  function renderProposals() {
+    const history = $("skill-proposals"), review = $("proposal-review"), preview = $("proposal-preview");
+    history.replaceChildren();
+    review.replaceChildren();
+    preview.replaceChildren();
+    $("proposal-review-section").hidden = !isAdmin();
+    review.hidden = !isAdmin();
+    if (!state.proposals.some((p) => p.status !== "draft")) history.append(empty("No proposals yet."));
+    const drafts = state.proposals.filter((p) => p.status === "draft" && p.user === state.me.username);
+    if (drafts.length) preview.append(node("h3", "proposal-preview-heading", "Your private drafts"));
+    for (const proposal of state.proposals) {
+      const isDraft = proposal.status === "draft";
+      const row = node("article", "proposal-row");
+      const heading = node("div", "proposal-heading");
+      heading.append(node("strong", "", value(proposal.title)), badge(proposal.status));
+      row.append(heading, node("p", "proposal-meta", `${value(proposal.user)} · ${time(proposal.created_at)}${proposal.session_id ? " · Session attached" : ""}`),
+        node("p", "proposal-copy", value(proposal.guidance, "No proposed guidance")),
+        node("p", "proposal-meta", "Evidence"), node("p", "proposal-copy", value(proposal.evidence, "Not supplied")));
+      if (proposal.review_note) row.append(node("p", "proposal-copy", `Review note: ${proposal.review_note}`));
+      if (proposal.approved_text) row.append(node("p", "proposal-copy", `Approved guidance: ${proposal.approved_text}`));
+      if (proposal.reviewed_by) row.append(node("p", "proposal-meta", `Reviewed by ${proposal.reviewed_by}`));
+      if (proposal.artifact) row.append(node("p", "proposal-meta", `Artifact: ${proposal.artifact}`));
+      (isDraft ? preview : history).append(row);
+      if (isDraft) {
+        row.append(node("p", "proposal-meta", "Private preview · only submit when the generated guidance and evidence are safe to share for review."));
+        const actions = node("div", "row-actions");
+        for (const [action, label, style] of [["submit", "Submit for review", "primary"], ["discard", "Discard draft", "outline"]]) {
+          const button = node("button", `button ${style}`, label);
+          button.type = "button";
+          button.addEventListener("click", async () => {
+            if (!state.me || proposal.user !== state.me.username) return;
+            const epoch = state.authEpoch;
+            for (const control of actions.children) control.disabled = true;
+            try {
+              const result = await post(`/api/skill-proposals/${encodeURIComponent(proposal.id)}/${action}`, {});
+              if (epoch !== state.authEpoch) return;
+              state.proposalTicket++;
+              if (action === "discard") state.proposals = state.proposals.filter((p) => p.id !== proposal.id);
+              else proposal.status = result.status;
+              renderProposals();
+              notice(action === "submit" ? "Proposal submitted for human review. No skill was automatically added." : "Draft discarded.");
+            } catch (err) {
+              if (epoch === state.authEpoch) notice(`Draft not ${action === "submit" ? "submitted" : "discarded"}: ${err.message}`, true);
+            } finally {
+              if (epoch === state.authEpoch) for (const control of actions.children) control.disabled = false;
+            }
+          });
+          actions.append(button);
+        }
+        row.append(actions);
+        continue;
+      }
+      if (isAdmin() && proposal.status === "approving" && proposal.user !== state.me.username) {
+        const retry = node("button", "button outline", "Retry publication");
+        retry.type = "button";
+        retry.addEventListener("click", async () => {
+          const epoch = state.authEpoch;
+          retry.disabled = true;
+          try {
+            await post(`/api/skill-proposals/${encodeURIComponent(proposal.id)}/decision`, {
+              decision: "approved", approved_text: proposal.approved_text, review_note: proposal.review_note,
+            });
+            if (epoch === state.authEpoch) { notice("Reviewed skill published."); await loadProposals(); }
+          } catch (err) {
+            if (epoch === state.authEpoch) notice(`Publication incomplete: ${err.message}`, true);
+          } finally {
+            if (epoch === state.authEpoch) retry.disabled = false;
+          }
+        });
+        row.append(node("p", "proposal-meta", "Approval recorded; publication incomplete. Retry after repairing the host skill."), retry);
+      }
+      if (!isAdmin() || proposal.status !== "pending" || proposal.user === state.me.username) continue;
+      const card = node("article", "proposal-row");
+      card.append(node("strong", "", `${value(proposal.title)} · ${value(proposal.user)}`),
+        node("p", "proposal-copy", `Suggested: ${value(proposal.guidance)}`),
+        node("p", "proposal-copy", value(proposal.evidence, "Evidence not supplied")));
+      const guidance = node("textarea", "");
+      guidance.id = `approved-${proposal.id}`;
+      guidance.rows = 4;
+      guidance.maxLength = 3000;
+      guidance.minLength = 80;
+      guidance.setAttribute("aria-label", `Evidence-backed approved guidance for ${proposal.title}`);
+      guidance.placeholder = "Write verified reusable guidance; check vendor version and patch availability before advising a fallback.";
+      const note = node("input", "");
+      note.id = `review-note-${proposal.id}`;
+      note.maxLength = 1000;
+      note.minLength = 10;
+      note.setAttribute("aria-label", `Review note for ${proposal.title}`);
+      note.placeholder = "Evidence checked or reason for rejection";
+      card.append(guidance, note);
+      const actions = node("div", "row-actions");
+      for (const decision of ["approved", "rejected"]) {
+        const button = node("button", `button ${decision === "approved" ? "primary" : "outline"}`, decision === "approved" ? "Approve" : "Reject");
+        button.type = "button";
+        button.addEventListener("click", async () => {
+          if (!isAdmin()) return;
+          const approved_text = guidance.value.trim(), review_note = note.value.trim();
+          if (decision === "approved" && !approved_text) { notice("Write evidence-backed approved guidance before approving.", true); return; }
+          const epoch = state.authEpoch;
+          for (const control of actions.children) control.disabled = true;
+          try {
+            await post(`/api/skill-proposals/${encodeURIComponent(proposal.id)}/decision`, { decision, approved_text: decision === "approved" ? approved_text : "", review_note });
+            if (epoch !== state.authEpoch) return;
+            notice(`Proposal ${decision}.`);
+            await loadProposals();
+          } catch (err) {
+            if (epoch === state.authEpoch) notice(`Decision not saved: ${err.message}`, true);
+          } finally {
+            if (epoch === state.authEpoch) for (const control of actions.children) control.disabled = false;
+          }
+        });
+        actions.append(button);
+      }
+      card.append(actions);
+      review.append(card);
+    }
+    if (isAdmin() && !review.children.length) review.append(empty("No proposals pending review."));
   }
   async function loadLabs() {
     const epoch = state.authEpoch,
@@ -542,6 +700,21 @@
       const list = node("ul", "event-checks");
       for (const check of checks) list.append(node("li", "", check));
       card.append(list);
+      if (["hermes", "advisory"].includes(event.kind)) {
+        const attempts = Number(event.tool_attempts) || 0, errors = Number(event.tool_errors) || 0;
+        card.append(node("p", "event-highlights", `${attempts} tool attempt${attempts === 1 ? "" : "s"} in retained trail · ${errors} reported tool error${errors === 1 ? "" : "s"} in retained trail${event.status === "failed" ? " · Run failed; verify any side effects" : ""}`));
+        if (event.user === state.me?.username && event.session_id && Array.isArray(event.steps)) {
+          const detail = node("details", "event-trail"), trail = node("ol", "event-checks");
+          detail.append(node("summary", "", `Recorded agent actions (${event.steps.length})`));
+          for (const step of event.steps) trail.append(node("li", "", `${time(step.at)} · ${value(step.summary, "Step reported")}`));
+          detail.append(trail, node("p", "muted", "Recorded tool names and allowlisted commands only; no raw tool output. Attempts and returns do not prove changes succeeded."));
+          card.append(detail);
+          const open = node("button", "button outline", "Open session");
+          open.type = "button";
+          open.addEventListener("click", () => selectSession(event.session_id));
+          card.append(open);
+        } else card.append(node("p", "muted", "Agent action trail is private to its run owner."));
+      }
       root.append(card);
     }
   }
@@ -653,6 +826,18 @@
     }
   }
   function renderSessions() {
+    const selected = $("proposal-session").value;
+    const selector = $("proposal-session");
+    selector.replaceChildren();
+    const none = node("option", "", "Choose a session");
+    none.value = "";
+    selector.append(none);
+    for (const session of state.sessions) {
+      const option = node("option", "", value(session.title, "Untitled session"));
+      option.value = session.id ?? session.session_id;
+      selector.append(option);
+    }
+    selector.value = state.sessions.some((s) => String(s.id ?? s.session_id) === selected) ? selected : "";
     const root = $("session-list");
     root.replaceChildren();
     if (!state.sessions.length) {
@@ -691,6 +876,7 @@
     );
     $("message-form").hidden = true;
     $("grant-login").hidden = true;
+    $("suggest-session-skill").hidden = true;
     $("run-progress").replaceChildren();
     $("run-progress").hidden = true;
   }
@@ -705,6 +891,7 @@
     $("messages").replaceChildren();
     $("message-form").hidden = true;
     $("grant-login").hidden = true;
+    $("suggest-session-skill").hidden = true;
     try {
       const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
       if (ticket !== state.sessionTicket || !state.me) return;
@@ -727,6 +914,7 @@
           ),
         ),
       );
+      $("suggest-session-skill").hidden = !state.sessions.some((s) => String(s.id ?? s.session_id) === String(id));
       const box = $("messages");
       box.replaceChildren();
       const messages = rows(data, "messages");
@@ -922,7 +1110,7 @@
       );
       if (request.kind === "environment" && request.spec) {
         const spec = request.spec;
-        left.append(node("div", "row-sub", `${value(request.proposed_name, "Legacy request: version missing; resubmit")} · ${spec.gateway_count} gateway(s) · ${spec.lab_id === "new" ? "new lab" : "attach " + spec.lab_id}${spec.topology === "database" ? ` · ${spec.os_version} / ${spec.db_engine}` : ""} · version ${value(spec.version || spec.db_version, "not specified")}`));
+        left.append(node("div", "row-sub", `${value(request.proposed_name, "Legacy request: version missing; resubmit")} · ${spec.gateway_count} gateway(s) · ${spec.lab_id === "new" ? "new lab" : "attach " + spec.lab_id}${spec.topology === "database" ? ` · ${value(spec.db_engine)} · OS ${value(spec.os_version, "undecided")}` : ""} · version ${value(spec.version || spec.db_version, "undecided")}`));
         if (spec.ttl_hours !== undefined || spec.max_spend_usd !== undefined) {
           left.append(node("div", "row-sub", `Historical request limits: ${value(spec.ttl_hours, "—")}h TTL · USD ${value(spec.max_spend_usd, "—")} maximum spend (not enforced)`));
         }
@@ -933,9 +1121,9 @@
         for (const [label, decision] of [[request.kind === "environment" ? "Approve for fulfillment" : "Approve", "approved"], ["Deny", "denied"]]) {
           const button = node("button", "button outline", label);
           button.type = "button";
-          if (request.kind === "environment" && (!request.proposed_name || request.spec?.topology === "database") && decision === "approved") {
+          if (request.kind === "environment" && !request.proposed_name && decision === "approved") {
             button.disabled = true;
-            button.title = request.spec?.topology === "database" ? "Database deployment is separate and unavailable here." : "Legacy request lacks a version or topology; ask the requester to resubmit.";
+            button.title = "Legacy request lacks a version or topology; ask the requester to resubmit.";
           }
           button.addEventListener("click", async () => {
             const epoch = state.authEpoch;
@@ -956,9 +1144,9 @@
       }
       if (isAdmin() && request.kind === "environment" && request.status === "approved" && request.spec) {
         const owned = state.sessions.some((s) => s.id === request.fulfillment_session);
-        const button = node("button", "button primary", request.spec.topology === "database" ? "Database deployment separate" : !request.proposed_name ? "Version required; resubmit" : request.fulfillment_session ? (owned ? "Open fulfillment" : "Fulfillment with another admin") : "Start admin fulfillment");
+        const button = node("button", "button primary", !request.proposed_name ? "Version required; resubmit" : request.fulfillment_session ? (owned ? "Open fulfillment" : "Fulfillment with another admin") : "Start admin fulfillment");
         button.type = "button";
-        button.disabled = request.spec.topology === "database" || !request.proposed_name || Boolean(request.fulfillment_session && !owned);
+        button.disabled = !request.proposed_name || Boolean(request.fulfillment_session && !owned);
         button.addEventListener("click", async () => {
           const epoch = state.authEpoch;
           button.disabled = true;
@@ -982,6 +1170,30 @@
       root.append(row);
     }
   }
+  async function loadFiles() {
+    if (!isAdmin()) return;
+    const epoch = state.authEpoch;
+    try {
+      const files = rows(await api("/api/files"), "files");
+      if (epoch !== state.authEpoch || !isAdmin()) return;
+      state.files = files;
+      renderFiles();
+    } catch (err) {
+      if (epoch === state.authEpoch && isAdmin()) $("files").replaceChildren(empty(`Files unavailable: ${err.message}`, true));
+    }
+  }
+  function renderFiles() {
+    const root = $("files"); root.replaceChildren();
+    if (!state.files.length) { root.append(empty("No files uploaded yet.")); return; }
+    for (const file of state.files) {
+      if (!/^[0-9a-f-]{36}$/.test(file.id)) continue;
+      const row = node("div", "list-row file-row"), details = node("div");
+      details.append(node("div", "row-name", file.name), node("div", "row-sub", `${value(file.user)} · ${file.size} bytes · ${time(file.created_at)}`), node("div", "row-sub", `SHA-256: ${value(file.sha256)}`));
+      const download = node("a", "button outline", "Download");
+      download.href = `/api/files/${encodeURIComponent(file.id)}/download`;
+      row.append(details, download); root.append(row);
+    }
+  }
   function openNewSession(labId) {
     openDialog("session", { lab_id: labId });
   }
@@ -1002,7 +1214,7 @@
       request: "Tell the team which lab you need and why.",
       gateway:
         "A nickname makes this gateway easier for the team to recognize.",
-      environment: "Request a standalone MX or MXHA lab. Database deployment is separate and unavailable here. The proposed name uses LabPilot, your account, topology, then product version.",
+      environment: "Request a standalone MX, MXHA, or database lab for human review. Database requests are manual handoffs only: no deployment, AWS permissions, or public access is created. Check versions against vendor documentation; never enter credentials here.",
       login: "Save a login for the exact HTTPS origin the agent needs (include its port). This enters the shared host Hermes vault, available to full-host admins—not just this session. Never paste a password in chat. Confirm the destination before saving.",
       user: "Create a tester account or explicitly choose admin. Passwords must be at least 16 characters.",
       reset: `Set a new password for ${value(subject.username)} (at least 16 characters).`,
@@ -1023,6 +1235,7 @@
       const label = node("label", "", labelText);
       label.htmlFor = control.id;
       fields.append(label, control);
+      return label;
     };
     if (["session", "request", "environment"].includes(kind)) {
       const select = node("select");
@@ -1038,7 +1251,7 @@
         select.append(option);
       }
       if (kind === "environment") {
-        const fresh = node("option", "", "New standalone lab (MX / MXHA only)");
+        const fresh = node("option", "", "New lab (manual admin review)");
         fresh.value = "new";
         select.append(fresh);
       }
@@ -1057,16 +1270,65 @@
     } else $("dialog-submit").disabled = false;
     if (kind === "environment") {
       const topology = node("select"); topology.id = "dialog-topology"; topology.required = true;
-      for (const [id, label] of [["", "Choose a topology"], ["standalone_mx", "Standalone MX"], ["mxha", "MXHA cluster"]]) {
+      for (const [id, label] of [["", "Choose a topology"], ["standalone_mx", "Standalone MX"], ["mxha", "MXHA cluster"], ["database", "Database (manual review)"]]) {
         const option = node("option", "", label); option.value = id; topology.append(option);
       }
       field("Requested topology", topology);
       const version = node("input"); version.id = "dialog-version"; version.required = true;
       version.maxLength = 40; version.placeholder = "e.g. 14.19.1.150";
-      field("MX product version", version);
+      const versionLabel = field("MX product version", version);
       const gateways = node("input"); gateways.id = "dialog-gateways"; gateways.type = "number";
       gateways.min = "0"; gateways.max = "4"; gateways.step = "1"; gateways.value = "1";
-      field("Gateways (0–4)", gateways);
+      const gatewayLabel = field("Gateways (0–4)", gateways);
+      const dbFields = node("div", "db-fields"); dbFields.id = "dialog-db-fields"; dbFields.hidden = true;
+      const dbField = (labelText, id, placeholder) => {
+        const label = node("label", "", labelText), input = node("input");
+        input.id = id; input.maxLength = 60; input.placeholder = placeholder;
+        label.htmlFor = id; dbFields.append(label, input);
+        return input;
+      };
+      const engineLabel = node("label", "", "Database engine (required)"), engine = node("select");
+      engine.id = "dialog-db-engine"; engineLabel.htmlFor = engine.id;
+      for (const [id, label] of [["", "Choose an engine"], ["mysql", "MySQL"], ["postgresql", "PostgreSQL"], ["oracle", "Oracle"], ["sql-server", "SQL Server"], ["mariadb", "MariaDB"]]) {
+        const option = node("option", "", label); option.value = id; engine.append(option);
+      }
+      dbFields.append(engineLabel, engine);
+      dbField("Database version (optional)", "dialog-db-version", "Leave blank if undecided");
+      dbField("OS version (optional)", "dialog-os-version", "Leave blank if undecided");
+      const adviceButton = node("button", "button outline", "Get optional agent advice");
+      adviceButton.id = "dialog-db-advice-button"; adviceButton.type = "button";
+      const advice = node("p", "muted"); advice.id = "dialog-db-advice"; advice.setAttribute("role", "status");
+      dbFields.append(adviceButton, advice); fields.append(dbFields);
+      let adviceSequence = 0;
+      const selection = () => ({ db_engine: engine.value.trim(), db_version: $("dialog-db-version").value.trim(), os_version: $("dialog-os-version").value.trim() });
+      const invalidateAdvice = () => { adviceSequence += 1; advice.textContent = ""; };
+      [engine, $("dialog-db-version"), $("dialog-os-version")].forEach((field) => {
+        field.addEventListener("input", invalidateAdvice);
+        field.addEventListener("change", invalidateAdvice);
+      });
+      topology.addEventListener("change", () => {
+        const database = topology.value === "database";
+        dbFields.hidden = !database; engine.required = database;
+        version.required = !database; version.disabled = database;
+        gateways.disabled = database;
+        version.hidden = versionLabel.hidden = database;
+        gateways.hidden = gatewayLabel.hidden = database;
+        invalidateAdvice();
+      });
+      adviceButton.addEventListener("click", async () => {
+        if (!engine.value.trim()) { advice.textContent = "Enter a database engine before requesting advice."; return; }
+        const epoch = state.authEpoch, modal = state.modal;
+        const choice = selection(), sequence = ++adviceSequence;
+        const current = () => epoch === state.authEpoch && modal === state.modal &&
+          sequence === adviceSequence && JSON.stringify(selection()) === JSON.stringify(choice);
+        adviceButton.disabled = true; advice.textContent = "Getting advisory guidance…";
+        try {
+          const result = await post("/api/db-advice", choice);
+          if (current()) advice.textContent = `Advisory only (${value(result.status)}): ${value(result.advice, "No recommendation available")} Verify compatibility and availability before requesting deployment.`;
+        } catch (err) {
+          if (current()) advice.textContent = `Advice unavailable: ${err.message}`;
+        } finally { if (epoch === state.authEpoch && modal === state.modal) adviceButton.disabled = false; }
+      });
     }
     const control = ["request", "environment"].includes(kind) ? node("textarea") : node("input");
     control.id = "dialog-detail";
@@ -1177,19 +1439,22 @@
       }
       if (kind === "environment") {
         const topology = $("dialog-topology").value;
-        const gateway_count = Number($("dialog-gateways").value);
+        const database = topology === "database";
+        const gateway_count = database ? 0 : Number($("dialog-gateways").value);
         const version = $("dialog-version").value.trim();
-        if (!["standalone_mx", "mxha"].includes(topology) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(version) ||
+        const db_engine = $("dialog-db-engine").value.trim(), db_version = $("dialog-db-version").value.trim(), os_version = $("dialog-os-version").value.trim();
+        if (!["standalone_mx", "mxha", "database"].includes(topology) || database && !["mysql", "postgresql", "oracle", "sql-server", "mariadb"].includes(db_engine) || !database && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(version) ||
+            database && [db_version, os_version].some((v) => v && !/^[A-Za-z0-9][A-Za-z0-9 ._()+-]{0,59}$/.test(v)) ||
             !Number.isInteger(gateway_count) || gateway_count < 0 || gateway_count > 4) {
-          throw new Error("Choose a valid topology, attachment and version.");
+          throw new Error(database ? "Choose a valid database engine and optional versions." : "Choose a valid topology, attachment and version.");
         }
-        const created = await post("/api/environments/requests", { lab_id, topology, gateway_count, version, purpose: detail });
+        const created = await post("/api/environments/requests", database ? { lab_id, topology, gateway_count, db_engine, db_version, os_version, purpose: detail } : { lab_id, topology, gateway_count, version, purpose: detail });
         if (epoch !== state.authEpoch) return;
         await loadRequests();
         await loadActivity();
         if (epoch !== state.authEpoch) return;
         view("access");
-        notice(`${value(created.proposed_name, "Environment")} requested. Approval unlocks an admin fulfillment session; it does not launch resources.`);
+        notice(database ? "Database request recorded for human review and manual handoff. No automatic deployment or access grant was made." : `${value(created.proposed_name, "Environment")} requested. Approval unlocks an admin fulfillment session; it does not launch resources.`);
       }
       if (kind === "user") {
         await post("/api/users", { username: detail, password: $("dialog-password").value, role: $("dialog-role").value });
@@ -1282,6 +1547,65 @@
     Promise.all([loadLabs(), loadGateways(), loadRuns()]),
   );
   $("refresh-runs").addEventListener("click", () => Promise.all([loadRuns(), loadActivity()]));
+  $("refresh-proposals").addEventListener("click", loadProposals);
+  $("refresh-files").addEventListener("click", loadFiles);
+  $("file-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!isAdmin()) return;
+    const file = $("file-input").files?.[0], error = $("file-error");
+    error.hidden = true;
+    if (!file || !file.size || file.size > 256 * 1024 * 1024) {
+      error.textContent = "Select a non-empty file no larger than 256 MiB."; error.hidden = false; return;
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._() -]{0,119}$/.test(file.name) || file.name.includes("..") || /\.(pem|key|p12|pfx|env)$/i.test(file.name)) {
+      error.textContent = "Choose a simple filename, not a credential or secret file."; error.hidden = false; return;
+    }
+    const epoch = state.authEpoch, submit = $("file-form").querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await api("/api/files", { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) } });
+      if (epoch !== state.authEpoch) return;
+      $("file-input").value = "";
+      await loadFiles();
+      if (epoch === state.authEpoch) notice("File uploaded for admin download. It was not scanned or executed.");
+    } catch (err) {
+      if (epoch === state.authEpoch) { error.textContent = `Upload failed: ${err.message}`; error.hidden = false; }
+    } finally { if (epoch === state.authEpoch) submit.disabled = false; }
+  });
+  async function generateSkillDraft(id) {
+    if (!state.me || state.drafting || !state.sessions.some((s) => String(s.id ?? s.session_id) === String(id))) {
+      if (state.me && !state.drafting) notice("Choose one of your listed sessions.", true);
+      return;
+    }
+    const epoch = state.authEpoch, submit = $("proposal-form").querySelector('button[type="submit"]');
+    state.drafting = true;
+    submit.disabled = true;
+    $("suggest-session-skill").disabled = true;
+    try {
+      const { proposal } = await post(`/api/sessions/${encodeURIComponent(id)}/skill-draft`, {});
+      if (epoch !== state.authEpoch) return;
+      if (!proposal?.id || proposal.status !== "draft" || String(proposal.session_id) !== String(id) || proposal.user && proposal.user !== state.me.username) throw new Error("Invalid draft response");
+      state.proposalTicket++;
+      state.proposals = [{ ...proposal, user: state.me.username }, ...state.proposals.filter((p) => p.id !== proposal.id)];
+      $("proposal-session").value = String(id);
+      renderProposals();
+      view("skill-proposals");
+      notice("Private draft ready. Review it before submitting for human review.");
+    } catch (err) {
+      if (epoch === state.authEpoch) notice(`Draft not generated: ${err.message}`, true);
+    } finally {
+      if (epoch === state.authEpoch) {
+        state.drafting = false;
+        submit.disabled = false;
+        $("suggest-session-skill").disabled = false;
+      }
+    }
+  }
+  $("suggest-session-skill").addEventListener("click", () => generateSkillDraft(state.sessionId));
+  $("proposal-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await generateSkillDraft($("proposal-session").value);
+  });
   $("activity-filters").addEventListener("submit", (event) => {
     event.preventDefault();
     loadActivity();

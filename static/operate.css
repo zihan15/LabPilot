@@ -526,6 +526,15 @@ summary:focus-visible {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.file-form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 10px 0 20px; }
+.file-form label { flex-basis: 100%; margin: 0; }
+.file-form input { flex: 1 1 240px; max-width: 100%; }
+.file-form .form-error { flex-basis: 100%; margin: 0; }
+.file-row { flex-wrap: wrap; }
+.file-row > div { min-width: 0; }
+.db-fields { border-top: 1px solid var(--rule); margin-top: 16px; padding-top: 6px; }
+.db-fields .button { margin-top: 14px; }
+.db-fields p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .pill {
   flex: none;
   display: inline-block;
@@ -613,7 +622,7 @@ summary:focus-visible {
   font-size: 12px;
   font-weight: 400;
 }
-.session-access { display: flex; justify-content: flex-end; padding-top: 8px; }
+.session-access { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
 .messages {
   flex: 1;
   min-height: 260px;
@@ -747,6 +756,21 @@ summary:focus-visible {
 .requests-panel {
   max-width: 850px;
 }
+.proposal-layout { display: grid; grid-template-columns: minmax(270px, 0.8fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+.proposal-layout > *, .proposal-history { min-width: 0; }
+.proposal-history { display: grid; gap: 16px; }
+.proposal-panel form { padding-top: 2px; }
+.proposal-panel form .muted { font-size: 12px; line-height: 1.5; }
+.proposal-panel form .button { margin-top: 12px; }
+.proposal-preview-heading { font-size: 14px; margin: 24px 0 4px; }
+.proposal-panel .row-actions { flex-wrap: wrap; }
+.proposal-panel .button { white-space: normal; text-align: center; }
+.proposal-row { padding: 16px 0; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
+.proposal-row:first-child { border-top: 0; }
+.proposal-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.proposal-meta { color: var(--muted); font-size: 12px; margin: 7px 0; }
+.proposal-copy { font-size: 13px; line-height: 1.5; white-space: pre-wrap; margin: 8px 0; }
+.proposal-row textarea, .proposal-row input { margin: 8px 0; }
 .notice {
   margin-bottom: 16px;
   padding: 10px 12px;
@@ -908,14 +932,14 @@ dialog p {
     right: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
     margin: 0;
     padding: 5px 10px max(5px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: var(--frame);
   }
-  #nav:has(#users-nav[hidden]) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #nav:has(#users-nav[hidden]) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .nav-item {
     min-height: 48px;
     padding: 8px 1px;
@@ -975,7 +999,8 @@ dialog p {
   }
   .overview-lower,
   .session-layout,
-  .activity-grid {
+  .activity-grid,
+  .proposal-layout {
     grid-template-columns: 1fr;
   }
   .session-list-panel,

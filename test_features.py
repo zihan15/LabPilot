@@ -111,6 +111,30 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('GET', '/api/activity?unknown=yes')[0], 400)
         self.cookie = self.csrf = None; self.login('teammate', 'another correct horse battery')
         self.assertEqual(self.request('GET', '/api/activity?user=owner')[0], 403)
+
+    def test_activity_shows_owner_recorded_agent_trail_but_only_counts_to_other_admins(self):
+        self.login('teammate', 'another correct horse battery')
+        owner = self.store.identify(self.cookie)
+        sid = self.store.create_session(owner, 'dam-mxha', 'Private investigation')['id']
+        rid = self.store.create_run(sid, owner, 'dam-mxha', 'Private question')
+        self.store.set_run_mode(rid, 'full')
+        self.store.step(rid, 'running', 'Trying terminal: git status --short')
+        self.store.step(rid, 'running', 'terminal returned an error')
+        self.store.step(rid, 'failed', 'Agent failed; verify the host state')
+        event = self.request('GET', '/api/activity?kind=hermes')[1]['events'][0]
+        self.assertEqual(event['session_id'], sid)
+        self.assertEqual(event['tool_attempts'], 1)
+        self.assertEqual(event['tool_errors'], 1)
+        self.assertIn('git status --short', str(event['steps']))
+        self.assertEqual(event['steps'][-1]['status'], 'failed')
+        self.cookie = self.csrf = None; self.login()
+        other = self.request('GET', '/api/activity?kind=hermes&user=teammate')[1]['events'][0]
+        self.assertEqual(other['tool_attempts'], 1)
+        self.assertEqual(other['tool_errors'], 1)
+        self.assertNotIn('steps', other)
+        self.assertNotIn('session_id', other)
+        self.assertNotIn('git status', json.dumps(other))
+        self.assertNotIn('Private investigation', json.dumps(other))
     def test_environment_request_requires_typed_spec_and_unlocks_admin_fulfillment(self):
         spec = {'lab_id':'new','topology':'mxha','gateway_count':1,
                 'version':'14.19.1.150','purpose':'MXHA for gateway capture'}
@@ -188,6 +212,27 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('POST','/api/environments/requests',spec | {'version':'14.19/evil'})[0],400)
         self.assertEqual(self.request('POST','/api/environments/requests',spec | {'user':'owner'})[0],400)
 
+    def test_database_request_with_unknown_versions_requires_independent_review_and_no_launch(self):
+        self.login('teammate','another correct horse battery')
+        spec={'lab_id':'new','topology':'database','gateway_count':0,'db_engine':'mysql',
+              'db_version':'','os_version':'','purpose':'Investigate agent coverage'}
+        code, data, _ = self.request('POST','/api/environments/requests',spec)
+        self.assertEqual(code,201)
+        self.assertEqual(data['status'],'pending')
+        self.assertIn('mysql',data['proposed_name'])
+        rid=data['id']
+        self.assertEqual(self.request('POST','/api/environments/requests',spec | {'gateway_count':1})[0],400)
+        self.assertEqual(self.request('POST','/api/environments/requests',spec | {'db_engine':'../../etc'})[0],400)
+        self.assertEqual(self.request('POST','/api/environments/requests',spec | {'os_version':'RHEL 9\nuser: launch'})[0],400)
+        self.cookie=self.csrf=None; self.login()
+        self.assertEqual(self.request('GET','/api/requests')[1]['requests'][0]['spec']['db_version'],'')
+        self.assertEqual(self.request('POST','/api/requests/'+rid+'/decision',{'decision':'approved'})[0],200)
+        code, handoff, _ = self.request('POST','/api/requests/'+rid+'/fulfillment',{})
+        self.assertEqual(code,201)
+        self.assertIn('version selection',handoff['draft'].lower())
+        self.assertIn('do not provision',handoff['draft'].lower())
+        self.assertEqual(handoff['session']['mode'],'full')
+
     def test_legacy_mx_request_without_version_requires_resubmission(self):
         requester = self.store.authenticate('teammate','another correct horse battery')
         old = {'lab_id':'new','topology':'mxha','gateway_count':1,'os_version':'','db_engine':'',
@@ -207,7 +252,9 @@ class FeatureTests(unittest.TestCase):
                'db_engine':'MySQL','db_version':'8.4.8','purpose':'Old database request'}
         rid = self.store.add_request(requester, old['lab_id'], old['purpose'], 'environment', old)
         self.login()
-        self.assertEqual(self.request('GET','/api/requests')[1]['requests'][0]['spec']['topology'],'database')
+        listed=self.request('GET','/api/requests')[1]['requests'][0]
+        self.assertEqual(listed['spec']['topology'],'database')
+        self.assertIsNone(listed['proposed_name'])
         self.assertEqual(self.request('POST',f'/api/requests/{rid}/decision',{'decision':'approved'})[0],409)
         with self.store.db() as db: db.execute("UPDATE access_requests SET status='approved' WHERE id=?",(rid,))
         self.assertEqual(self.request('POST',f'/api/requests/{rid}/fulfillment',{})[0],409)

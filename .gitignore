@@ -6,6 +6,7 @@ __pycache__/
 *.sqlite-*
 *.db
 *.db-*
+uploads/
 *.private*
 *.pem
 *.key
