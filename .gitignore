@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.private*
+*.pem
+*.key
+*credentials*
+*secret*
+.DS_Store

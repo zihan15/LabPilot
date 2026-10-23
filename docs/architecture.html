@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LabPilot portal — current architecture</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;background:#020617;color:#e2e8f0;font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;padding:32px}main{max-width:1200px;margin:auto}h1{font-size:26px;margin:0 0 4px}h2{font-size:15px;margin:0 0 8px}.subtitle,.caption,footer{color:#94a3b8}.subtitle{margin:0 0 24px}.frame{overflow-x:auto;border:1px solid #334155;border-radius:14px;padding:16px;background:#0f172a}svg{display:block;width:100%;min-width:950px;height:auto}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:18px 0}.card{border:1px solid #334155;border-radius:10px;padding:16px;background:#0f172a}.card p{margin:0;color:#cbd5e1}.card h2{border-left:4px solid #22d3ee;padding-left:9px}.card.warning h2{border-color:#fb7185}.card.cloud h2{border-color:#fbbf24}footer{font-size:12px;margin-top:18px}a{color:#67e8f9}svg text{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}svg .title{fill:#f8fafc;font-size:15px;font-weight:bold}svg .sub{fill:#cbd5e1;font-size:11px}svg .small{fill:#94a3b8;font-size:10px}svg .boundary{fill:rgba(251,191,36,.035);stroke:#fbbf24;stroke-width:1.5;stroke-dasharray:8 5}svg .box{stroke-width:1.5}svg .frontend{fill:#082d39;stroke:#22d3ee}svg .backend{fill:#083c30;stroke:#34d399}svg .store{fill:#312050;stroke:#a78bfa}svg .cloudbox{fill:#392910;stroke:#fbbf24}svg .caution{fill:#421b2a;stroke:#fb7185}svg .external{fill:#263449;stroke:#94a3b8}svg .flow{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}svg .flow.hot{stroke:#fb7185;stroke-dasharray:6 4}svg .flow.cloudline{stroke:#fbbf24}svg .label{fill:#cbd5e1;font-size:10px}svg .badge{fill:#fbbf24;font-size:11px;font-weight:bold}@media(max-width:600px){body{padding:16px}h1{font-size:21px}.frame{padding:8px}}
+</style>
+</head>
+<body><main>
+<h1>LabPilot portal · current implementation</h1>
+<p class="subtitle">Private operating pilot · browser → loopback Python server → host-local data, CLI workers and known AWS resources</p>
+<div class="frame"><svg viewBox="0 0 1080 760" role="img" aria-labelledby="diagram-title diagram-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="diagram-title">LabPilot portal runtime architecture and trust boundary</title>
+<desc id="diagram-desc">A trusted browser reaches a loopback Python HTTP server through an authenticated SSH tunnel. The server stores sessions, requests, runs and screenshot artifacts privately, calls AWS CLI for observed inventory and exact pinned EC2 start or stop, and starts either a bounded tester Hermes CLI or a full host-privileged admin Hermes CLI. The admin CLI shares the host vault and broad AWS identity. New environment approval is only a human handoff, not provisioning.</desc>
+<defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#263449" stroke-width=".6"/></pattern><marker id="arrow" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0L9 4 0 8Z" fill="#94a3b8"/></marker></defs>
+<rect width="1080" height="760" fill="url(#grid)"/>
+<!-- Arrows precede components so they do not cross text or card fills. -->
+<path class="flow" d="M184 138H225"/><path class="flow" d="M379 138H420"/>
+<path class="flow" d="M577 153V208"/><path class="flow" d="M660 257H680V331H700"/>
+<path class="flow" d="M680 331V446H700"/><path class="flow hot" d="M680 446V573H700"/>
+<path class="flow cloudline" d="M655 243H955V322"/>
+<path class="flow hot" d="M888 560H955V375"/>
+<path class="flow" d="M844 560V634"/><path class="flow" d="M575 285V625H647"/>
+<rect class="boundary" x="405" y="66" width="503" height="612" rx="14"/>
+<text class="badge" x="421" y="87">Trusted host · shared OS identity · loopback-only service</text>
+<rect class="boundary" x="929" y="66" width="138" height="390" rx="14"/>
+<text class="badge" x="941" y="87">AWS region</text>
+<rect class="box external" x="24" y="105" width="160" height="66" rx="8"/><text class="title" x="104" y="131" text-anchor="middle">Trusted browser</text><text class="sub" x="104" y="150" text-anchor="middle">tester / admin</text>
+<rect class="box frontend" x="225" y="105" width="154" height="66" rx="8"/><text class="title" x="302" y="131" text-anchor="middle">SSH tunnel</text><text class="sub" x="302" y="150" text-anchor="middle">authenticated access</text>
+<rect class="box backend" x="420" y="103" width="240" height="86" rx="8"/><text class="title" x="540" y="129" text-anchor="middle">server.py · HTTP / API</text><text class="sub" x="540" y="149" text-anchor="middle">127.0.0.1:8090 · static UI</text><text class="small" x="540" y="169" text-anchor="middle">cookie, CSRF, roles, owned sessions</text>
+<rect class="box backend" x="420" y="208" width="240" height="78" rx="8"/><text class="title" x="540" y="234" text-anchor="middle">Route handlers</text><text class="sub" x="540" y="252" text-anchor="middle">inventory · exact-pin actions</text><text class="small" x="540" y="270" text-anchor="middle">requests · runs · human handoff</text>
+<rect class="box store" x="647" y="622" width="232" height="76" rx="8"/><text class="title" x="763" y="646" text-anchor="middle">Private local data</text><text class="sub" x="763" y="664" text-anchor="middle">SQLite + run PNG artifacts</text><text class="small" x="763" y="680" text-anchor="middle">outside Git · owner-scoped image</text>
+<rect class="box store" x="700" y="295" width="181" height="73" rx="8"/><text class="title" x="790" y="321" text-anchor="middle">Instance pin file</text><text class="sub" x="790" y="340" text-anchor="middle">0600 · 2 labs × 3 slots</text><text class="small" x="790" y="354" text-anchor="middle">all IDs + exact tags checked</text>
+<rect class="box frontend" x="700" y="409" width="181" height="74" rx="8"/><text class="title" x="790" y="435" text-anchor="middle">Tester Hermes CLI</text><text class="sub" x="790" y="454" text-anchor="middle">safe mode · todo only</text><text class="small" x="790" y="469" text-anchor="middle">advisory, not OS isolation</text>
+<rect class="box caution" x="700" y="535" width="181" height="76" rx="8"/><text class="title" x="790" y="560" text-anchor="middle">Admin Hermes CLI</text><text class="sub" x="790" y="578" text-anchor="middle">-t all · host profile / vault</text><text class="small" x="790" y="594" text-anchor="middle">shell + broad AWS authority</text>
+<rect class="box cloudbox" x="943" y="294" width="110" height="88" rx="8"/><text class="title" x="998" y="320" text-anchor="middle">AWS APIs</text><text class="sub" x="998" y="340" text-anchor="middle">EC2 + stacks</text><text class="small" x="998" y="359" text-anchor="middle">start / stop</text>
+<text class="label" x="303" y="95" text-anchor="middle">tunneled HTTP, not public HTTPS</text>
+<text class="label" x="908" y="227" text-anchor="end">timestamped read / pinned write</text>
+<text class="label" x="752" y="517" text-anchor="middle">admin only</text>
+<text class="label" x="539" y="614" text-anchor="middle">persist events</text>
+<text class="label" x="470" y="720">Legend: cyan access/advisory · green API · violet private state · amber AWS · rose privileged flow</text>
+</svg></div>
+<div class="cards">
+<section class="card"><h2>Observed, not diagnosed</h2><p>Known EC2 Name tags and MXHA stack statuses are mapped to labels with observation time. Product health stays unknown; EC2 running does not prove DAM health.</p></section>
+<section class="card cloud"><h2>Two existing labs</h2><p>Start/stop targets six privately pinned EC2 nodes only after exact tag validation. Testers can start; admins can stop. No automatic expiry or new-lab executor.</p></section>
+<section class="card warning"><h2>Not a security sandbox</h2><p>Full admin Hermes inherits the host OS/profile and broad AWS permission. A request approval is a human handoff, not an enforced cloud gate. Tester safe mode is not OS isolation.</p></section>
+</div>
+<footer>Offline standalone document; no scripts, remote fonts or network assets. Architecture detail: <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a> · usage: <a href="../USER-GUIDE.md">USER-GUIDE.md</a>. Diagram is not served by the portal HTTP routes.</footer>
+</main></body></html>
