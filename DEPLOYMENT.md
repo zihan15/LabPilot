@@ -1,21 +1,33 @@
 # Private deployment and GitHub handoff
 
-**Status: source handoff only, not a team/public deployment recipe.** This portal is a trusted-host pilot. It binds `127.0.0.1` and gives portal admins the host Hermes full toolset and broad AWS `AdministratorAccess`. Tester safe mode is not an OS/IAM isolation boundary. Do not change network exposure, launch new cloud resources or install on a second host just because the repository is published.
+**Status: source handoff only, not a team/public deployment recipe.** This portal is a trusted-host pilot. It binds `127.0.0.1` and gives portal admins the host Hermes full toolset; on the current pilot host that includes broad AWS `AdministratorAccess`. Tester safe mode is not an OS/IAM isolation boundary. Do not change network exposure, launch new cloud resources or install on a second host just because the repository is published.
 
-## Reproduce the private pilot only with an authorized operator
+## What a working Hermes + AWS host gets from this repo
 
-The source needs Python, `pip`, `Pillow` (`requirements.txt`), Node.js for the UI test only, AWS CLI and an already configured host AWS identity for **live** inventory/actions, and a working host Hermes CLI/profile (including the Imperva troubleshooting skill for full-admin chat). Without AWS CLI/credentials, inventory reports an error and controls are unavailable. Without Hermes, chats fail. This checkout alone is **not** a portable deployment: it omits private resource pins, host profile/vault, accounts and credentials.
+**Pointing Hermes at the checkout is not an installation step.** LabPilot is a separate Python web app, not a Hermes plugin or skill. On a host with a configured Hermes CLI/model and AWS credentials, clone this repo, install its Python dependency, create a portal login, and launch the server. The `hermes` and `aws` executables must be on the server process's `PATH`, using the intended host profile and AWS identity. Admin chat explicitly preloads `imperva-troubleshooting`; install that skill in the same Hermes profile (the separate team-skills handoff is one source). Node.js is needed only to run the UI tests.
+
+| Capability after checkout | Additional requirement |
+| --- | --- |
+| Loopback UI, login, requests, local activity | Python/Pillow, an initial portal account, and a running `server.py`; no existing portal database needs to be copied. |
+| Admin Hermes chat | Working `hermes` CLI/model/provider under the server's OS account, plus the Imperva skill for domain context. Full admin runs inherit that account's files and cloud authority. |
+| AWS inventory | Working `aws` CLI/credentials for `ap-southeast-1` and **existing** instances whose Name tags match `LAB_INSTANCE_NAMES` in `server.py`. AWS credentials alone do not create or discover arbitrary new labs. |
+| Start/stop known lab components | In addition, the owner-only 0600 instance-pin file below, with the exact six existing IDs in source-defined slot order and matching Name tags. Missing/mismatched pins disable actions. |
+| New lab provisioning, database deployment, end-to-end test/evidence/cleanup | **Not implemented** by this repository; an approved request is a human handoff, not an executor. |
+
+For a trusted private pilot, from a **fresh checkout**:
 
 ```sh
-cd /path/to/labpilot-portal
+git clone https://github.com/zihan15/LabPilot.git
+cd LabPilot
 python -m pip install -r requirements.txt
 python -m unittest -v test_portal test_features
-node --test test_ui.mjs
-node --check static/app.js
+node --test test_ui.mjs                 # optional; requires Node.js
+node --check static/app.js             # optional; requires Node.js
+python server.py create-user --username your-username  # prompts for a 16+ character password; tester by default
 python server.py serve --port 8090
 ```
 
-The server always binds `127.0.0.1`; `--port` defaults to 8090. `python server.py create-user --username <name>` creates a tester in the default private database and prompts for a 16+ character password. `--role admin` exists but must be reserved for explicitly trusted host/cloud operators. CLI `--db <path>` is for an authorized private store, not a shared repository file. No user or password is created by simply running the server on a fresh checkout.
+The server always binds `127.0.0.1`; `--port` defaults to 8090. `--role admin` exists for `create-user` but must be reserved for explicitly trusted host/cloud operators. CLI `--db <path>` is for an authorized private store, not a shared repository file. This checkout omits private resource pins, the host profile/vault, accounts and credentials; do **not** copy a prior portal database or secrets into Git to make it work.
 
 Host-specific state is **outside Git**:
 
