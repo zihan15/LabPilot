@@ -915,6 +915,7 @@
   }
   async function selectSession(id) {
     if (!isAdmin() || id === null || id === undefined) return;
+    if (String(state.sessionId) !== String(id)) $("message-text").value = "";
     state.sessionId = id;
     document.querySelector(".chat-panel").classList.remove("is-empty");
     const ticket = ++state.sessionTicket;
@@ -1183,15 +1184,16 @@
         button.disabled = !request.proposed_name || Boolean(request.fulfillment_session && !owned);
         button.addEventListener("click", async () => {
           const epoch = state.authEpoch;
+          const selection = state.sessionTicket;
           button.disabled = true;
           try {
             const handoff = await post(`/api/requests/${encodeURIComponent(request.id)}/fulfillment`, {});
-            if (epoch !== state.authEpoch) return;
+            if (epoch !== state.authEpoch || selection !== state.sessionTicket) return;
             await loadSessions();
             await loadRequests();
-            if (epoch !== state.authEpoch) return;
+            if (epoch !== state.authEpoch || selection !== state.sessionTicket) return;
             await selectSession(handoff.session.id);
-            if (epoch === state.authEpoch) {
+            if (epoch === state.authEpoch && state.sessionId === handoff.session.id) {
               $("message-text").value = handoff.draft;
               notice("Review before sending: sending the fulfillment handoff authorizes billable cloud changes. Ticket approval alone launched nothing.");
             }

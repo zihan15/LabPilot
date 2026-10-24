@@ -8,6 +8,8 @@ test("operations controls expose request, approval, user and activity workflows"
   const script = readFileSync(new URL("./static/app.js", import.meta.url), "utf8");
   for (const id of ["new-environment", "users-view", "users", "activity-filters", "activity-events"])
     assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /All requests receive human review/);
+  assert.doesNotMatch(html, /Database requests are for human review only/);
   for (const route of ["/api/environments/requests", "/api/users", "/api/activity", "/decision", "/start"])
     assert.ok(script.includes(route), `missing ${route}`);
   assert.doesNotMatch(script, /node\("p", "run-output", run\.output\)/);
@@ -242,7 +244,7 @@ test("session expiry removes account identity and unsent private input from DOM"
   assert.equal(get("form-dialog").open, false);
 });
 
-function proposalHarness(role, proposals, deferred = false, files = [], activity = [], users = [], confirm = () => true, mode = "full") {
+function proposalHarness(role, proposals, deferred = false, files = [], activity = [], users = [], confirm = () => true, mode = "full", extraSessions = []) {
   class Element {
     constructor() { this.children = []; this.value = ""; this.hidden = false; this.dataset = {}; this.listeners = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -270,7 +272,7 @@ function proposalHarness(role, proposals, deferred = false, files = [], activity
   const responses = {
     "/api/me": { user: { username: "alice", role }, csrfToken: "csrf" },
     "/api/labs": { labs: [] }, "/api/gateways": { gateways: [] },
-    "/api/sessions": { sessions: [{ id: sessionId, title: "Selected", mode }] },
+    "/api/sessions": { sessions: [{ id: sessionId, title: "Selected", mode }, ...extraSessions] },
     [`/api/sessions/${sessionId}`]: { session: { id: sessionId, title: "Selected", mode }, messages: [] },
     "/api/runs": { runs: [] }, "/api/requests": { requests: [] },
     "/api/activity": { events: activity }, "/api/users": { users },
@@ -287,14 +289,44 @@ function proposalHarness(role, proposals, deferred = false, files = [], activity
   get("files-view").hidden = true;
   const context = vm.createContext({ document, URLSearchParams, window: { confirm }, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, fetch: async (path, options = {}) => {
     calls.push({ path, options });
-    if (deferred === "get" && path === "/api/skill-proposals" && !options.method || deferred === "draft" && path.endsWith("/skill-draft") || deferred === "submit" && path.endsWith("/submit") || deferred === "files" && path === "/api/files" && !options.method || deferred === "upload" && path === "/api/files" && options.method === "POST" || deferred === "advice" && path === "/api/db-advice") await pending;
+    if (deferred === "get" && path === "/api/skill-proposals" && !options.method || deferred === "draft" && path.endsWith("/skill-draft") || deferred === "submit" && path.endsWith("/submit") || deferred === "files" && path === "/api/files" && !options.method || deferred === "upload" && path === "/api/files" && options.method === "POST" || deferred === "advice" && path === "/api/db-advice" || deferred === "fulfillment" && path.endsWith("/fulfillment")) await pending;
     return { ok: true, status: 200, json: async () => responses[path] || { id: "new", status: "pending" } };
   } });
   vm.runInContext(readFileSync(new URL("./static/app.js", import.meta.url), "utf8"), context);
   const texts = (item) => [item.textContent, ...(item.children || []).flatMap(texts)];
   const button = (item, label) => item.textContent === label && item.listeners?.click ? item : item.children?.map((child) => button(child, label)).find(Boolean);
-  return { get, calls, release, texts, button, sessionId };
+  return { get, calls, release, texts, button, sessionId, responses };
 }
+
+test("unsent authorization never moves into a different session", async () => {
+  const other = "44444444-4444-4444-8444-444444444444";
+  const h = proposalHarness("admin", [], false, [], [], [], () => true, "full", [{ id: other, title: "Other", mode: "full" }]);
+  h.responses[`/api/sessions/${other}`] = { session: { id: other, title: "Other", mode: "full" }, messages: [] };
+  await new Promise((resolve) => setImmediate(resolve));
+  await h.get("session-list").children[0].listeners.click();
+  h.get("message-text").value = "I authorize billable launch";
+  await h.get("session-list").children[1].listeners.click();
+  assert.equal(h.get("message-text").value, "");
+});
+
+test("late fulfillment does not change selection or inject launch text", async () => {
+  const other = "44444444-4444-4444-8444-444444444444";
+  const handoff = "55555555-5555-4555-8555-555555555555";
+  const request = { id: "66666666-6666-4666-8666-666666666666", kind: "environment", status: "approved", user: "bob", proposed_name: "DB lab", spec: { topology: "database", db_engine: "mysql" } };
+  const h = proposalHarness("admin", [], "fulfillment", [], [], [], () => true, "full", [{ id: other, title: "Other", mode: "full" }]);
+  h.responses["/api/requests"] = { requests: [request] };
+  h.responses[`/api/sessions/${other}`] = { session: { id: other, title: "Other", mode: "full" }, messages: [] };
+  h.responses[`/api/sessions/${handoff}`] = { session: { id: handoff, title: "DB handoff", mode: "full" }, messages: [] };
+  h.responses[`/api/requests/${request.id}/fulfillment`] = { session: { id: handoff, mode: "full" }, draft: "I authorize billable DB launch" };
+  await new Promise((resolve) => setImmediate(resolve));
+  const pending = h.button(h.get("requests"), "Start admin fulfillment").listeners.click();
+  await h.get("session-list").children[1].listeners.click();
+  h.get("message-text").value = "Private question for other session";
+  h.release();
+  await pending;
+  assert.equal(h.get("message-text").value, "Private question for other session");
+  assert.match(h.texts(h.get("chat-header")).join(" "), /Other/);
+});
 
 test("tester has no agent sessions, run fetches, or skill draft form", async () => {
   const h = proposalHarness("tester", [{ id: "mine", user: "alice", title: "Earlier proposal", status: "pending" },

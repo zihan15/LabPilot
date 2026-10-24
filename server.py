@@ -585,7 +585,7 @@ class PortalStore:
         return {'id':pid,'user':user['username'],'session_id':session_id,'title':title,'guidance':guidance,
                 'evidence':evidence,'status':'draft','created_at':created}
 
-    def skill_draft_login(self, db, user, cookie, admin=False):
+    def current_login_valid(self, db, user, cookie, admin=False):
         token = next((x.split('=',1)[1] for x in cookie.split(';') if x.strip().startswith(COOKIE+'=')), None)
         return bool(token and db.execute('SELECT 1 FROM auth_sessions JOIN users ON users.id=auth_sessions.user_id '
                          'WHERE auth_sessions.token_hash=? AND auth_sessions.expires>? AND users.disabled=0 AND users.id=? '
@@ -595,14 +595,14 @@ class PortalStore:
     def submit_skill_draft(self, user, pid, cookie):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            if not self.skill_draft_login(db, user, cookie, admin=True): return False
+            if not self.current_login_valid(db, user, cookie, admin=True): return False
             updated = db.execute("UPDATE skill_proposals SET status='pending' WHERE id=? AND user_id=? AND status='draft'", (pid,user['id']))
             return updated.rowcount == 1
 
     def discard_skill_draft(self, user, pid, cookie):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            if not self.skill_draft_login(db, user, cookie): return False
+            if not self.current_login_valid(db, user, cookie): return False
             deleted = db.execute("DELETE FROM skill_proposals WHERE id=? AND user_id=? AND status='draft'", (pid,user['id']))
             return deleted.rowcount == 1
 
@@ -669,9 +669,11 @@ class PortalStore:
             db.execute("INSERT INTO access_requests (id,user_id,lab_id,note,status,created_at,kind,spec_json) VALUES (?,?,?,?,?,?,?,?)", (rid, user['id'], lab_id, safe_text(note), 'pending', now(), kind, json.dumps(spec) if spec else None))
         return rid
 
-    def decide_request(self, rid, decision, reviewer):
+    def decide_request(self, rid, decision, reviewer, cookie):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            if not self.current_login_valid(db, reviewer, cookie, admin=True):
+                raise PermissionError('Reviewer access revoked')
             row = db.execute('SELECT * FROM access_requests WHERE id=?', (rid,)).fetchone()
             if row is None: return None
             if row['status'] != 'pending': raise BusyRun('Request already reviewed')
@@ -1558,7 +1560,8 @@ def make_server(host, port, store, inventory=aws_inventory, agent=hermes_agent, 
                 obj = self.body()
                 if set(obj) != {'decision'} or obj['decision'] not in ('approved','denied'):
                     return self.reply(400, {'error': 'Invalid decision'})
-                try: decision = store.decide_request(match.group(1), obj['decision'], user)
+                try: decision = store.decide_request(match.group(1), obj['decision'], user, self.headers.get('Cookie',''))
+                except PermissionError: return self.reply(403, {'error':'Reviewer access revoked'})
                 except BusyRun as exc: return self.reply(409, {'error': str(exc)})
                 if not decision: return self.reply(404, {'error': 'Request not found'})
                 # Approval unlocks a full Hermes fulfillment handoff, not an automatic launch.

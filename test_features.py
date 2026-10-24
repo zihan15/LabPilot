@@ -404,18 +404,20 @@ class FeatureTests(unittest.TestCase):
     def test_standalone_handoff_fits_message_limit_at_valid_input_bounds(self):
         requester=self.store.create_user('a'*40,'long test-only password 1234','tester')
         reviewer=self.store.authenticate('owner','correct horse battery staple')
+        self.login()
         spec={'lab_id':'new','topology':'standalone_mx','gateway_count':4,
               'version':'V'+'1'*39,'purpose':'Demo'}
         rid=self.store.add_request(requester,'new','Demo','environment',spec)
-        self.store.decide_request(rid,'approved',reviewer)
+        self.store.decide_request(rid,'approved',reviewer,self.cookie)
         self.assertLessEqual(len(self.store.start_fulfillment(rid,reviewer)['draft']),2000)
 
     def test_mxha_handoff_authorizes_deployment_after_preflight(self):
         requester=self.store.authenticate('teammate','another correct horse battery')
         reviewer=self.store.authenticate('owner','correct horse battery staple')
+        self.login()
         spec={'lab_id':'new','topology':'mxha','gateway_count':2,'version':'14.19.1.150','purpose':'Demo'}
         rid=self.store.add_request(requester,'new','Demo','environment',spec)
-        self.store.decide_request(rid,'approved',reviewer)
+        self.store.decide_request(rid,'approved',reviewer,self.cookie)
         draft=self.store.start_fulfillment(rid,reviewer)['draft'].lower()
         for term in ('i authorize','mxha','both mx nodes','hourly','license','gateway','synchron'):
             self.assertIn(term,draft)
@@ -426,12 +428,13 @@ class FeatureTests(unittest.TestCase):
     def test_mxha_and_database_handoffs_fit_message_limit_at_valid_input_bounds(self):
         requester=self.store.create_user('a'*40,'long test-only password 1234','tester')
         reviewer=self.store.authenticate('owner','correct horse battery staple')
+        self.login()
         for spec in ({'lab_id':'new','topology':'mxha','gateway_count':4,
                       'version':'V'+'1'*39,'purpose':'Demo'},
                      {'lab_id':'new','topology':'database','gateway_count':0,
                       'db_engine':'postgresql','db_version':'V'*60,'os_version':'R'*60,'purpose':'Demo'}):
             rid=self.store.add_request(requester,'new','Demo','environment',spec)
-            self.store.decide_request(rid,'approved',reviewer)
+            self.store.decide_request(rid,'approved',reviewer,self.cookie)
             self.assertLessEqual(len(self.store.start_fulfillment(rid,reviewer)['draft']),2000)
 
     def test_legacy_viewer_migrates_to_tester_without_losing_session(self):
@@ -448,6 +451,23 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/requests/' + rid + '/decision', {'decision': 'approved'})[0], 409)
         self.assertEqual(self.request('GET', '/api/requests')[1]['requests'][0]['status'], 'pending')
 
+    def test_reviewer_must_still_have_admin_role_and_live_login_at_decision(self):
+        requester=self.store.authenticate('teammate','another correct horse battery')
+        reviewer=self.store.authenticate('owner','correct horse battery staple')
+        spec={'lab_id':'new','topology':'mxha','gateway_count':0,'version':'14.19.1.150','purpose':'Demo'}
+        rid=self.store.add_request(requester,'new','Demo','environment',spec)
+        self.login()
+        cookie=self.cookie
+        with self.store.db() as db: db.execute("UPDATE users SET role='tester' WHERE id=?",(reviewer['id'],))
+        with self.assertRaises(PermissionError): self.store.decide_request(rid,'approved',reviewer,cookie)
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT status FROM access_requests WHERE id=?',(rid,)).fetchone()[0],'pending')
+            db.execute("UPDATE users SET role='admin' WHERE id=?",(reviewer['id'],))
+        self.store.logout(cookie)
+        with self.assertRaises(PermissionError): self.store.decide_request(rid,'approved',reviewer,cookie)
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT status FROM access_requests WHERE id=?',(rid,)).fetchone()[0],'pending')
+
     def test_request_purpose_cannot_spoof_handoff_role_or_instruction(self):
         from server import validate_environment_spec
         spec = {'lab_id':'dam-mxha','topology':'mxha','gateway_count':1,'version':'14.19.1.150',
@@ -457,7 +477,8 @@ class FeatureTests(unittest.TestCase):
         requester = self.store.authenticate('teammate','another correct horse battery')
         reviewer = self.store.authenticate('owner','correct horse battery staple')
         rid = self.store.add_request(requester, spec['lab_id'], spec['purpose'], 'environment', spec)
-        self.store.decide_request(rid, 'approved', reviewer)
+        self.login()
+        self.store.decide_request(rid, 'approved', reviewer, self.cookie)
         draft = self.store.start_fulfillment(rid, reviewer)['draft']
         self.assertNotIn(spec['purpose'], draft)
         self.assertIn('14.19.1.150', draft)
