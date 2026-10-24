@@ -4,14 +4,13 @@ LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab vis
 
 **This is a vibe-coded, AI-assisted pilot with limited portal access controls and orchestration**, not a finished lab automation or security product. Admin agents inherit the host's permissions, and approving a request does not itself provision an environment. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
 
-## Demo access and media
+## Private demo access
 
 - **Private demo:** [Open LabPilot on localhost](http://127.0.0.1:8090) **after** an authenticated tunnel is running on that local port. Ask the lab operator for an account and follow [Private local run](#private-local-run); there is no public demo URL. If you forward a different local port, use that port instead. The repository alone cannot connect to the private lab.
-- **Demo recording:** A video walkthrough will be linked in the [Demo](#demo) section after the owner publishes a reviewed copy. No private sessions, credentials, customer details or live cloud identifiers should be published as demo media.
 
 ## Demo
 
-**Admin-focused video:** Coming soon—the owner will add a link here after reviewing and hosting the recording. No video is bundled with this repository. The walkthrough focuses on admin inventory, private Hermes sessions, request fulfillment, agent progress and reviewed skill proposals; it is a demo of the portal workflow, not proof that a new DAM lab was provisioned or that a policy fired. Review the recording frame by frame for private accounts, identifiers, lab state and credentials before publishing it. For a large video, host it outside the source tree and link it here rather than committing the binary.
+**Admin-focused video:** Coming soon. The owner will add a link after reviewing the recording for private accounts, credentials and cloud identifiers. No video is bundled here; a walkthrough of the portal is not proof that a new lab was provisioned or a DAM policy fired.
 
 ## What is Hermes, and why a separate LabPilot?
 
@@ -27,7 +26,7 @@ The portal gives the team a shared view of known labs and requests while keeping
 
 This is for engineers who understand the product, the test conditions and the risks well enough to define the workflow and verify outcomes. An agent can help research and execute bounded steps; it does not replace engineering judgment, authorization, vendor compatibility checks or evidence that a fix worked. We deliberately do not use a current vulnerability headline as proof that this pilot detects or remediates emerging attacks.
 
-> **Trust boundary:** Admin Hermes sessions have the host profile, filesystem and broad AWS `AdministratorAccess`. Non-admin accounts have **no portal agent-session capability**; bounded DB advice and historical safe-mode agents still share the host OS identity and are **not** an OS/IAM sandbox. Do not publish this service or give untrusted users accounts. A GitHub repository is source distribution, not a deployable security boundary.
+> **Trust boundary:** Admin Hermes sessions have the host profile, filesystem and broad AWS `AdministratorAccess`. Non-admin accounts have **no portal agent-session capability**; the bounded DB advice worker shares the host OS identity and is **not** an OS/IAM sandbox. Historical advisory runs are retained, not active. Do not publish this service or give untrusted users accounts. A GitHub repository is source distribution, not a deployable security boundary.
 
 ## What works
 

@@ -45,14 +45,14 @@ Use an authenticated SSH tunnel from a trusted workstation, e.g. `ssh -N -L 8090
 
 ## Safe GitHub handoff
 
-1. Review the intended paths in this checkout: `README.md`, `ARCHITECTURE.md`, `USER-GUIDE.md`, `DEPLOYMENT.md`, source/tests, and the static licensed font. Private-pilot screenshots are excluded; if adding images later, review pixels for account names, cloud state, private URLs and identifiers before sharing.
+1. Review the intended paths in this checkout: `README.md`, `ARCHITECTURE.md`, `USER-GUIDE.md`, `DEPLOYMENT.md`, `HANDOVER.md`, source/tests, and the static licensed font. Private-pilot screenshots are excluded; if adding images later, review pixels for account names, cloud state, private URLs and identifiers before sharing.
 2. Check `git status --short`, `git diff --check`, `git diff --stat`, and `git ls-files`. Inspect **both tracked and untracked** content; ignored/private files may still be manually added with `-f`. Scan staged text for credentials, IDs, private IPs and machine-specific host details. `.gitignore` is a guardrail, not a proof of no secrets.
 3. The source can be committed to an approved repository after an exact staged-content review. Confirm repository visibility and access controls before any push; the included application checks do not make a public endpoint safe.
 4. A GitHub upload is not a working deployment, cloud backup or permission model. Do not publish a cloned private runtime directory or the older workbench by accident.
 
 ## Gates before broader access
 
-- Isolate tester workers and privileged admin execution under separate OS identities and scoped IAM; prevent unintended host file/profile access and block unneeded IMDS/network access. App-level safe-mode/toolset flags and pinned IDs are not sandboxes.
+- Isolate bounded advice workers and privileged admin execution under separate OS identities and scoped IAM; prevent unintended host file/profile access and block unneeded IMDS/network access. App-level safe-mode/toolset flags and pinned IDs are not sandboxes.
 - Replace password-only pilot authentication with reviewed HTTPS, SSO/MFA and operator/role policy; add audit retention, abuse testing and an independent authorization boundary for cloud mutation. Admin full-tool sessions can currently bypass request tickets.
 - For automatic or tester-facing provisioning, require a reviewed typed plan, isolated execution identity, verified license/template/secret/network feasibility, explicit entitlement, spend ceiling, expiry and independent cleanup. The current form records neither TTL nor spend and performs **no** provisioning or teardown. Confirm proposed-name uniqueness before resource creation; normalization may collide.
 - Verify restricted read-only tester DB/product transport before offering queries. No such broker exists today; do not substitute host shell, keys or broad AWS credentials. EC2 observations/start acknowledgements are not DAM or database health checks.
