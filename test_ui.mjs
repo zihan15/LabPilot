@@ -11,7 +11,7 @@ test("operations controls expose request, approval, user and activity workflows"
   for (const route of ["/api/environments/requests", "/api/users", "/api/activity", "/decision", "/start"])
     assert.ok(script.includes(route), `missing ${route}`);
   assert.doesNotMatch(script, /node\("p", "run-output", run\.output\)/);
-  assert.match(script, /sending the standalone MX handoff authorizes billable cloud changes/i);
+  assert.match(script, /sending (?:a|the) fulfillment handoff authorizes billable cloud changes/i);
 });
 
 test("admin creates a tester with a long password and CSRF protection", async () => {
@@ -134,7 +134,7 @@ test("admin creates a tester with a long password and CSRF protection", async ()
   await get("dialog-form").listeners.submit({ preventDefault() {} });
   const database = calls.find(({ path, options }) => path === "/api/environments/requests" && options.method === "POST");
   assert.deepEqual(JSON.parse(database.options.body), { lab_id: "new", topology: "database", gateway_count: 0, db_engine: "postgresql", db_version: "", os_version: "", purpose: "Private database test" });
-  assert.match(get("notice").textContent, /human review|manual/i);
+  assert.match(get("notice").textContent, /does not launch resources/i);
   get("new-environment").listeners.click();
   get("dialog-lab").value = "dam-mxha";
   get("dialog-topology").value = "mxha";

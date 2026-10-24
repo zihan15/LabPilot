@@ -368,7 +368,9 @@ class FeatureTests(unittest.TestCase):
         self.assertIn('LabPilot-teammate-mxha-14-19-1-150', handoff['session']['title'])
         self.assertNotIn('ttl_hours', handoff['draft'])
         self.assertNotIn('max_spend_usd', handoff['draft'])
-        self.assertIn('approval is not a launch', handoff['draft'].lower())
+        self.assertIn('i authorize', handoff['draft'].lower())
+        self.assertIn('sending this', handoff['draft'].lower())
+        self.assertNotIn('planning only', handoff['draft'].lower())
         code, retry, _ = self.request('POST', '/api/requests/' + rid + '/fulfillment', {})
         self.assertEqual(code, 200)
         self.assertEqual(retry['session']['id'], handoff['session']['id'])
@@ -408,6 +410,30 @@ class FeatureTests(unittest.TestCase):
         self.store.decide_request(rid,'approved',reviewer)
         self.assertLessEqual(len(self.store.start_fulfillment(rid,reviewer)['draft']),2000)
 
+    def test_mxha_handoff_authorizes_deployment_after_preflight(self):
+        requester=self.store.authenticate('teammate','another correct horse battery')
+        reviewer=self.store.authenticate('owner','correct horse battery staple')
+        spec={'lab_id':'new','topology':'mxha','gateway_count':2,'version':'14.19.1.150','purpose':'Demo'}
+        rid=self.store.add_request(requester,'new','Demo','environment',spec)
+        self.store.decide_request(rid,'approved',reviewer)
+        draft=self.store.start_fulfillment(rid,reviewer)['draft'].lower()
+        for term in ('i authorize','mxha','both mx nodes','hourly','license','gateway','synchron'):
+            self.assertIn(term,draft)
+        self.assertNotIn('separate explicit confirmation',draft)
+        self.assertNotIn('do not provision',draft)
+        self.assertLessEqual(len(draft),2000)
+
+    def test_mxha_and_database_handoffs_fit_message_limit_at_valid_input_bounds(self):
+        requester=self.store.create_user('a'*40,'long test-only password 1234','tester')
+        reviewer=self.store.authenticate('owner','correct horse battery staple')
+        for spec in ({'lab_id':'new','topology':'mxha','gateway_count':4,
+                      'version':'V'+'1'*39,'purpose':'Demo'},
+                     {'lab_id':'new','topology':'database','gateway_count':0,
+                      'db_engine':'postgresql','db_version':'V'*60,'os_version':'R'*60,'purpose':'Demo'}):
+            rid=self.store.add_request(requester,'new','Demo','environment',spec)
+            self.store.decide_request(rid,'approved',reviewer)
+            self.assertLessEqual(len(self.store.start_fulfillment(rid,reviewer)['draft']),2000)
+
     def test_legacy_viewer_migrates_to_tester_without_losing_session(self):
         self.login('teammate', 'another correct horse battery')
         cookie = self.cookie
@@ -446,7 +472,7 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('POST','/api/environments/requests',spec | {'version':'14.19/evil'})[0],400)
         self.assertEqual(self.request('POST','/api/environments/requests',spec | {'user':'owner'})[0],400)
 
-    def test_database_request_with_unknown_versions_requires_independent_review_and_no_launch(self):
+    def test_database_request_with_unknown_versions_requires_independent_review_before_launch(self):
         self.login('teammate','another correct horse battery')
         spec={'lab_id':'new','topology':'database','gateway_count':0,'db_engine':'mysql',
               'db_version':'','os_version':'','purpose':'Investigate agent coverage'}
@@ -463,8 +489,13 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('POST','/api/requests/'+rid+'/decision',{'decision':'approved'})[0],200)
         code, handoff, _ = self.request('POST','/api/requests/'+rid+'/fulfillment',{})
         self.assertEqual(code,201)
-        self.assertIn('version selection',handoff['draft'].lower())
-        self.assertIn('do not provision',handoff['draft'].lower())
+        draft=handoff['draft'].lower()
+        self.assertIn('i authorize',draft)
+        self.assertIn('version selection',draft)
+        self.assertIn('verify',draft)
+        self.assertIn('hourly',draft)
+        self.assertNotIn('do not provision',draft)
+        self.assertNotIn('separate explicit confirmation',draft)
         self.assertEqual(handoff['session']['mode'],'full')
 
     def test_legacy_mx_request_without_version_requires_resubmission(self):

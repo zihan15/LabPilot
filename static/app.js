@@ -1167,7 +1167,7 @@
               if (epoch !== state.authEpoch) return;
               await loadRequests();
               await loadActivity();
-              if (epoch === state.authEpoch) notice(request.kind === "environment" && decision === "approved" ? "Approved for admin fulfillment. No resources launched; start a fulfillment session to review the plan." : `Request ${decision}. No access grant or environment launch was made.`);
+              if (epoch === state.authEpoch) notice(request.kind === "environment" && decision === "approved" ? "Approved for admin fulfillment. No resources launched; open a fulfillment session to review the unsent authorization." : `Request ${decision}. No access grant or environment launch was made.`);
             } catch (err) {
               if (epoch === state.authEpoch) notice(`Decision not saved: ${err.message}`, true);
             } finally { button.disabled = false; }
@@ -1193,7 +1193,7 @@
             await selectSession(handoff.session.id);
             if (epoch === state.authEpoch) {
               $("message-text").value = handoff.draft;
-              notice(request.spec?.topology === "standalone_mx" ? "Review before sending: sending the standalone MX handoff authorizes billable cloud changes. Ticket approval alone launched nothing." : "Fulfillment session ready. Review the drafted request before sending. Approval did not launch anything.");
+              notice("Review before sending: sending the fulfillment handoff authorizes billable cloud changes. Ticket approval alone launched nothing.");
             }
           } catch (err) {
             if (epoch === state.authEpoch) notice(`Fulfillment unavailable: ${err.message}`, true);
@@ -1250,7 +1250,7 @@
       request: "Tell the team which lab you need and why.",
       gateway:
         "A nickname makes this gateway easier for the team to recognize.",
-      environment: "Request a standalone MX, MXHA, or database lab for human review. Database requests are manual handoffs only: no deployment, AWS permissions, or public access is created. Check versions against vendor documentation; never enter credentials here.",
+      environment: "Request a standalone MX, MXHA, or database lab for human review. This form does not deploy anything; after approval, a trusted admin can review and send a billable launch handoff. Verify versions and entitlement; never enter credentials here.",
       login: "Save a login for the exact HTTPS origin the agent needs (include its port). This enters the shared host Hermes vault, available to full-host admins—not just this session. Never paste a password in chat. Confirm the destination before saving.",
       user: "Create a tester account or explicitly choose admin. Passwords must be at least 16 characters.",
       reset: `Set a new password for ${value(subject.username)} (at least 16 characters).`,
@@ -1306,7 +1306,7 @@
     } else $("dialog-submit").disabled = false;
     if (kind === "environment") {
       const topology = node("select"); topology.id = "dialog-topology"; topology.required = true;
-      for (const [id, label] of [["", "Choose a topology"], ["standalone_mx", "Standalone MX"], ["mxha", "MXHA cluster"], ["database", "Database (manual review)"]]) {
+      for (const [id, label] of [["", "Choose a topology"], ["standalone_mx", "Standalone MX"], ["mxha", "MXHA cluster"], ["database", "Database"]]) {
         const option = node("option", "", label); option.value = id; topology.append(option);
       }
       field("Requested topology", topology);
@@ -1490,7 +1490,7 @@
         await loadActivity();
         if (epoch !== state.authEpoch) return;
         view("access");
-        notice(database ? "Database request recorded for human review and manual handoff. No automatic deployment or access grant was made." : `${value(created.proposed_name, "Environment")} requested. Approval unlocks an admin fulfillment session; it does not launch resources.`);
+        notice(`${value(created.proposed_name, "Environment")} requested. Approval unlocks an admin fulfillment session; it does not launch resources.`);
       }
       if (kind === "user") {
         await post("/api/users", { username: detail, password: $("dialog-password").value, role: $("dialog-role").value });
