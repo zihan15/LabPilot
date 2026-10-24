@@ -1,8 +1,8 @@
-# LabPilot — AI-assisted engineering lab pilot
+# LabPilot — a team workspace for Imperva DAM labs
 
-Reproducing an enterprise issue often means rebuilding the right database, OS, product version and network conditions before anyone can test a fix. LabPilot explores whether an agent harness can make that work more repeatable: observe a lab, help an engineer investigate, record what was attempted, and turn useful findings into reviewed procedures for the next case.
+LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab visibility, controls for known environments, admin agent sessions, request handoffs and attributed activity into one place. Engineers can see what is running, investigate with an agent, and turn useful session workflows into skill proposals. A different admin reviews each proposal before it becomes shared guidance.
 
-**LabPilot is a vibe-coded, private proof of concept for trusted Imperva DAM engineers**, not a finished automation or security product. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
+**This is a vibe-coded, AI-assisted pilot with limited portal access controls and orchestration**, not a finished lab automation or security product. Admin agents inherit the host's permissions, and approving a request does not itself provision an environment. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
 
 ## Demo access and media
 
@@ -17,7 +17,7 @@ Reproducing an enterprise issue often means rebuilding the right database, OS, p
 
 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) is the agent harness: it connects a model to tools, reusable skills, persistent context and optional messaging gateways. It can run through [Telegram, Slack or WhatsApp](https://hermes-agent.nousresearch.com/docs/user-guide/messaging) when each gateway is configured with appropriate access. **Those gateway conversations are not LabPilot sessions** and do not inherit this portal's roles, budgets or review workflow.
 
-We built a separate, multi-user portal to focus on Imperva DAM lab work: known lab inventory, account-owned conversations, bounded run progress, request review, private file exchange and a human-reviewed path for adding Imperva troubleshooting lessons. This gives engineers a narrower place to try a domain-specific workflow without implying that the underlying host or full-admin agent is isolated.
+The portal gives the team a shared view of known labs and requests while keeping each admin's conversation private. It records bounded run progress and supports private file exchange and reviewed Imperva troubleshooting lessons. The portal's roles do not isolate the underlying host or full-admin agent.
 
 ## What this pilot is testing
 
@@ -46,6 +46,8 @@ This is for engineers who understand the product, the test conditions and the ri
 The environment form accepts standalone MX or MXHA with 0–4 requested gateways and an MX version, or a database request with an engine and optional DB/OS versions. It records a proposed name, not an allocated cloud resource; normalization can collide. Database requests enter the same human-review/fulfillment planning flow; no database is actually deployed by this app. The form has no TTL or spend controls, and neither limit is enforced. Legacy invalid requests need resubmission.
 
 **Learning loop (admins):** From **Sessions**, choose **Suggest skill from this session**, or select one of your own sessions on **Skill proposals**. A separate bounded safe-mode Hermes process summarizes recent session messages into a private draft. Preview it, discard it if it exposes sensitive information or is wrong, or explicitly **Submit for review**. Only then can a different admin see the candidate, inspect its evidence, enter final reviewed guidance and approve before the server writes `references/portal-approved-<proposal-id>.md` and an index entry under the *installed host* `imperva-troubleshooting` skill. Non-admins retain visibility into their earlier proposals but cannot open agent sessions or generate new drafts. For version requests, verify current Thales release notes, authorized downloads, patch compatibility and upgrade path; neither worker certifies an exact build.
+
+**Skills beyond LabPilot:** Reviewed `SKILL.md` workflows can be transferred to coding agents such as [Codex](https://learn.chatgpt.com/docs/build-skills) and [Claude Code](https://code.claude.com/docs/en/skills), then adapted to each agent's tools and permissions. A team can use them in a wider orchestration workflow with agents powered by different models. LabPilot currently runs its portal sessions through the host's configured Hermes model; it does **not** install skills into Codex or Claude Code, switch models per task, or orchestrate those agents automatically. The separate team handover bundle is a skills package, not a deployment or credential transfer.
 
 ## Portal agent versus a normal Hermes gateway session
 
