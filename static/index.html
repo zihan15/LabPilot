@@ -58,7 +58,7 @@
             <span class="nav-full">Lab inventory</span
             ><span class="nav-mobile">Labs</span>
           </button>
-          <button type="button" class="nav-item" data-view="sessions">
+          <button type="button" class="nav-item" data-view="sessions" id="sessions-nav" hidden>
             <span class="nav-full">Sessions</span
             ><span class="nav-mobile">Sessions</span>
           </button>
@@ -157,7 +157,7 @@
               <div>
                 <h1>Hermes sessions</h1>
                 <p>
-                  Conversations are private to your account. Admin-created sessions run the full Hermes host toolset, including AWS access; tester sessions are advisory. Admin access is powerful—verify actions and never submit secrets.
+                  Admin sessions are private to your account and run the full Hermes host toolset, including AWS access. Verify actions and never submit secrets.
                 </p>
               </div>
               <button id="new-session" class="button primary" type="button">
@@ -277,11 +277,11 @@
           </section>
           <section id="skill-proposals-view" class="view" hidden>
             <div class="page-heading">
-              <div><h1>Skill proposals</h1><p>Generate a draft from one of your Hermes sessions, preview it privately, then choose whether to submit it for human review. No skill is installed automatically.</p></div>
+              <div><h1>Skill proposals</h1><p id="proposal-description">Admins can generate a draft from their own Hermes sessions, preview it privately, then submit it for human review. No skill is installed automatically.</p></div>
               <button id="refresh-proposals" class="button outline" type="button">Refresh</button>
             </div>
             <div class="proposal-layout">
-              <section class="panel proposal-panel" aria-labelledby="proposal-form-heading">
+              <section class="panel proposal-panel" id="proposal-form-section" aria-labelledby="proposal-form-heading" hidden>
                 <div class="panel-heading"><h2 id="proposal-form-heading">Generate from a session</h2></div>
                 <form id="proposal-form">
                   <label for="proposal-session">Your session</label><select id="proposal-session" required><option value="">Choose a session</option></select>

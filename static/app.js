@@ -203,6 +203,8 @@
     $("notice").textContent = "";
     $("users-nav").hidden = true;
     $("files-nav").hidden = true;
+    $("sessions-nav").hidden = true;
+    $("proposal-form-section").hidden = true;
     $("file-input").value = "";
     $("file-form").querySelector('button[type="submit"]').disabled = false;
     $("file-error").textContent = "";
@@ -240,13 +242,17 @@
     $("app").hidden = false;
     $("users-nav").hidden = !isAdmin();
     $("files-nav").hidden = !isAdmin();
+    $("sessions-nav").hidden = !isAdmin();
+    $("proposal-form-section").hidden = !isAdmin();
+    $("proposal-description").textContent = isAdmin()
+      ? "Admins can generate a draft from their own Hermes sessions, preview it privately, then submit it for human review. No skill is installed automatically."
+      : "Review the status of earlier proposals. New Hermes sessions and skill drafts are admin-only.";
     $("filter-user-label").hidden = !isAdmin();
     view("overview");
     await Promise.all([
       loadLabs(),
       loadGateways(),
-      loadSessions(),
-      loadRuns(),
+      ...(isAdmin() ? [loadSessions(), loadRuns()] : []),
       loadRequests(),
       loadProposals(),
       loadActivity(),
@@ -254,7 +260,7 @@
     ]);
   }
   function view(name) {
-    if (!state.me || (["users", "files"].includes(name) && !isAdmin())) return;
+    if (!state.me || (["users", "files", "sessions"].includes(name) && !isAdmin())) return;
     for (const section of document.querySelectorAll(".view"))
       section.hidden = section.id !== `${name}-view`;
     for (const button of document.querySelectorAll(".nav-item")) {
@@ -313,7 +319,7 @@
       if (isDraft) {
         row.append(node("p", "proposal-meta", "Private preview · only submit when the generated guidance and evidence are safe to share for review."));
         const actions = node("div", "row-actions");
-        for (const [action, label, style] of [["submit", "Submit for review", "primary"], ["discard", "Discard draft", "outline"]]) {
+        for (const [action, label, style] of (isAdmin() ? [["submit", "Submit for review", "primary"], ["discard", "Discard draft", "outline"]] : [["discard", "Discard draft", "outline"]])) {
           const button = node("button", `button ${style}`, label);
           button.type = "button";
           button.addEventListener("click", async () => {
@@ -368,18 +374,21 @@
       guidance.rows = 4;
       guidance.maxLength = 3000;
       guidance.minLength = 80;
-      guidance.setAttribute("aria-label", `Evidence-backed approved guidance for ${proposal.title}`);
-      guidance.placeholder = "Write verified reusable guidance; check vendor version and patch availability before advising a fallback.";
+      guidance.setAttribute("aria-label", `Reviewed guidance for ${proposal.title}`);
+      guidance.placeholder = "Review the concrete workflow; edit it for the lab scope. Verify product or version claims before approving.";
+      const useSuggestion = node("button", "button outline", "Use suggested wording");
+      useSuggestion.type = "button";
+      useSuggestion.addEventListener("click", () => { guidance.value = value(proposal.guidance).slice(0, 3000); guidance.focus?.(); });
       const note = node("input", "");
       note.id = `review-note-${proposal.id}`;
       note.maxLength = 1000;
       note.minLength = 10;
       note.setAttribute("aria-label", `Review note for ${proposal.title}`);
-      note.placeholder = "Evidence checked or reason for rejection";
-      card.append(guidance, note);
+      note.placeholder = "What was reviewed, or reason for rejection";
+      card.append(guidance, useSuggestion, note);
       const actions = node("div", "row-actions");
       for (const decision of ["approved", "rejected"]) {
-        const button = node("button", `button ${decision === "approved" ? "primary" : "outline"}`, decision === "approved" ? "Approve" : "Reject");
+        const button = node("button", `button ${decision === "approved" ? "primary" : "outline"}`, decision === "approved" ? "Approve & add to skill" : "Reject");
         button.type = "button";
         button.addEventListener("click", async () => {
           if (!isAdmin()) return;
@@ -595,11 +604,14 @@
       );
       if (Array.isArray(lab.errors) && lab.errors.length)
         observed.append(node("div", "lab-error", lab.errors.join("; ")));
-      const footer = node("div", "lab-footer"),
-        button = node("button", "button primary hermes-session-cta", "Start Hermes session");
-      button.type = "button";
-      button.addEventListener("click", () => openNewSession(lab.id));
-      footer.append(observed, button);
+      const footer = node("div", "lab-footer");
+      footer.append(observed);
+      if (isAdmin()) {
+        const button = node("button", "button primary hermes-session-cta", "Start Hermes session");
+        button.type = "button";
+        button.addEventListener("click", () => openNewSession(lab.id));
+        footer.append(button);
+      }
       if (parts.length === 3 && parts.some((part) => part.ec2State === "stopped") && parts.every((part) => ["stopped", "running"].includes(part.ec2State)) && lab.start_available === true) {
         const start = node("button", "button outline", "Start lab");
         start.type = "button";
@@ -748,6 +760,12 @@
       reset.type = "button";
       reset.addEventListener("click", () => openDialog("reset", user));
       actions.append(reset);
+      if (user.username !== state.me.username) {
+        const remove = node("button", "button outline", "Delete");
+        remove.type = "button";
+        remove.addEventListener("click", () => deleteUser(user, remove));
+        actions.append(remove);
+      }
       row.append(left, actions);
       root.append(row);
     }
@@ -763,6 +781,20 @@
       if (epoch === state.authEpoch) notice("Account updated.");
     } catch (err) {
       if (epoch === state.authEpoch) notice(`Account not updated: ${err.message}`, true);
+    } finally { button.disabled = false; }
+  }
+  async function deleteUser(user, button) {
+    if (!isAdmin() || user.username === state.me.username) return;
+    if (!window.confirm(`Permanently delete ${user.username} and their portal chats, runs, requests, screenshots, proposals and uploaded files? This cannot be undone. Shared Hermes CLI history, vault entries, approved skills and backups remain outside the portal.`)) return;
+    const epoch = state.authEpoch;
+    button.disabled = true;
+    try {
+      const result = await api(`/api/users/${encodeURIComponent(user.id)}/delete`, { method: "POST" });
+      if (epoch !== state.authEpoch) return;
+      await Promise.all([loadUsers(), loadRuns(), loadActivity(), loadRequests(), loadProposals(), loadFiles()]);
+      if (epoch === state.authEpoch) notice(result.cleanup_complete ? "Portal account and data deleted." : "Account deleted, but some private artifacts need operator cleanup.", !result.cleanup_complete);
+    } catch (err) {
+      if (epoch === state.authEpoch) notice(`Account not deleted: ${err.message}`, true);
     } finally { button.disabled = false; }
   }
   async function loadGateways() {
@@ -812,6 +844,7 @@
     }
   }
   async function loadSessions() {
+    if (!isAdmin()) return;
     const epoch = state.authEpoch;
     try {
       const sessions = rows(await api("/api/sessions"), "sessions");
@@ -832,12 +865,12 @@
     const none = node("option", "", "Choose a session");
     none.value = "";
     selector.append(none);
-    for (const session of state.sessions) {
+    for (const session of state.sessions.filter((s) => s.mode === "full")) {
       const option = node("option", "", value(session.title, "Untitled session"));
       option.value = session.id ?? session.session_id;
       selector.append(option);
     }
-    selector.value = state.sessions.some((s) => String(s.id ?? s.session_id) === selected) ? selected : "";
+    selector.value = state.sessions.some((s) => s.mode === "full" && String(s.id ?? s.session_id) === selected) ? selected : "";
     const root = $("session-list");
     root.replaceChildren();
     if (!state.sessions.length) {
@@ -854,7 +887,7 @@
       button.type = "button";
       button.append(
         node("strong", "", value(session.title, "Untitled session")),
-        node("small", "", session.mode === "full" && isAdmin() ? "Full harness · host/AWS" : "Advisory · no lab command broker"),
+        node("small", "", session.mode === "full" ? "Full harness · host/AWS · commands auto-approved" : "Historical advisory session"),
         node(
           "small",
           "",
@@ -871,7 +904,7 @@
     $("chat-header").textContent = "Select a session";
     $("messages").replaceChildren(
       empty(
-        "Choose a Hermes session from the list, or start one from an environment. Admin-created sessions can use host/AWS tools; tester sessions remain advisory.",
+        "Choose a private Hermes session from the list, or start one from an environment. Admin sessions can use host/AWS tools.",
       ),
     );
     $("message-form").hidden = true;
@@ -881,7 +914,7 @@
     $("run-progress").hidden = true;
   }
   async function selectSession(id) {
-    if (id === null || id === undefined) return;
+    if (!isAdmin() || id === null || id === undefined) return;
     state.sessionId = id;
     document.querySelector(".chat-panel").classList.remove("is-empty");
     const ticket = ++state.sessionTicket;
@@ -914,7 +947,7 @@
           ),
         ),
       );
-      $("suggest-session-skill").hidden = !state.sessions.some((s) => String(s.id ?? s.session_id) === String(id));
+      $("suggest-session-skill").hidden = session.mode !== "full";
       const box = $("messages");
       box.replaceChildren();
       const messages = rows(data, "messages");
@@ -942,7 +975,7 @@
         );
         box.append(item);
       }
-      $("message-form").hidden = false;
+      $("message-form").hidden = session.mode !== "full";
       $("grant-login").hidden = !(isAdmin() && session.mode === "full");
       renderSessionProgress();
       box.scrollTop = box.scrollHeight;
@@ -954,6 +987,7 @@
     }
   }
   async function loadRuns() {
+    if (!isAdmin()) return;
     const epoch = state.authEpoch;
     try {
       const fresh = rows(await api("/api/runs"), "runs");
@@ -1159,7 +1193,7 @@
             await selectSession(handoff.session.id);
             if (epoch === state.authEpoch) {
               $("message-text").value = handoff.draft;
-              notice("Fulfillment session ready. Review the drafted request before sending. Approval did not launch anything.");
+              notice(request.spec?.topology === "standalone_mx" ? "Review before sending: sending the standalone MX handoff authorizes billable cloud changes. Ticket approval alone launched nothing." : "Fulfillment session ready. Review the drafted request before sending. Approval did not launch anything.");
             }
           } catch (err) {
             if (epoch === state.authEpoch) notice(`Fulfillment unavailable: ${err.message}`, true);
@@ -1195,9 +1229,11 @@
     }
   }
   function openNewSession(labId) {
+    if (!isAdmin()) return;
     openDialog("session", { lab_id: labId });
   }
   function openDialog(kind, subject = {}) {
+    if (kind === "session" && !isAdmin()) return;
     state.modal = { kind, subject };
     const title = {
       session: "Start Hermes session",
@@ -1210,7 +1246,7 @@
     }[kind];
     $("dialog-title").textContent = title;
     $("dialog-description").textContent = {
-      session: isAdmin() ? "Full host/AWS tool access. Only start this session for a trusted admin; review any changes it makes." : "Choose a lab for an advisory Hermes conversation. Lab queries need a separate read-only broker.",
+      session: "Full host/AWS tool access. Only start this session for a trusted admin; review any changes it makes.",
       request: "Tell the team which lab you need and why.",
       gateway:
         "A nickname makes this gateway easier for the team to recognize.",
@@ -1573,8 +1609,8 @@
     } finally { if (epoch === state.authEpoch) submit.disabled = false; }
   });
   async function generateSkillDraft(id) {
-    if (!state.me || state.drafting || !state.sessions.some((s) => String(s.id ?? s.session_id) === String(id))) {
-      if (state.me && !state.drafting) notice("Choose one of your listed sessions.", true);
+    if (!isAdmin() || state.drafting || !state.sessions.some((s) => s.mode === "full" && String(s.id ?? s.session_id) === String(id))) {
+      if (isAdmin() && !state.drafting) notice("Choose one of your listed sessions.", true);
       return;
     }
     const epoch = state.authEpoch, submit = $("proposal-form").querySelector('button[type="submit"]');

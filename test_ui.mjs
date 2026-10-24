@@ -11,6 +11,7 @@ test("operations controls expose request, approval, user and activity workflows"
   for (const route of ["/api/environments/requests", "/api/users", "/api/activity", "/decision", "/start"])
     assert.ok(script.includes(route), `missing ${route}`);
   assert.doesNotMatch(script, /node\("p", "run-output", run\.output\)/);
+  assert.match(script, /sending the standalone MX handoff authorizes billable cloud changes/i);
 });
 
 test("admin creates a tester with a long password and CSRF protection", async () => {
@@ -241,7 +242,7 @@ test("session expiry removes account identity and unsent private input from DOM"
   assert.equal(get("form-dialog").open, false);
 });
 
-function proposalHarness(role, proposals, deferred = false, files = [], activity = []) {
+function proposalHarness(role, proposals, deferred = false, files = [], activity = [], users = [], confirm = () => true, mode = "full") {
   class Element {
     constructor() { this.children = []; this.value = ""; this.hidden = false; this.dataset = {}; this.listeners = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -269,10 +270,10 @@ function proposalHarness(role, proposals, deferred = false, files = [], activity
   const responses = {
     "/api/me": { user: { username: "alice", role }, csrfToken: "csrf" },
     "/api/labs": { labs: [] }, "/api/gateways": { gateways: [] },
-    "/api/sessions": { sessions: [{ id: sessionId, title: "Selected" }] },
-    [`/api/sessions/${sessionId}`]: { session: { id: sessionId, title: "Selected" }, messages: [] },
+    "/api/sessions": { sessions: [{ id: sessionId, title: "Selected", mode }] },
+    [`/api/sessions/${sessionId}`]: { session: { id: sessionId, title: "Selected", mode }, messages: [] },
     "/api/runs": { runs: [] }, "/api/requests": { requests: [] },
-    "/api/activity": { events: activity }, "/api/users": { users: [] },
+    "/api/activity": { events: activity }, "/api/users": { users },
     "/api/skill-proposals": { proposals }, "/api/files": { files },
     "/api/db-advice": { advice: "Verify vendor documentation; no version selected.", status: "advisory" },
     [`/api/sessions/${sessionId}/skill-draft`]: { proposal: { id: "33333333-3333-4333-8333-333333333333", session_id: sessionId, title: "Generated lesson", guidance: "Check vendor releases", evidence: "Verified session reference", status: "draft" } },
@@ -284,7 +285,7 @@ function proposalHarness(role, proposals, deferred = false, files = [], activity
     querySelectorAll: (selector) => selector === ".view" ? ["overview", "sessions", "activity", "access", "skill-proposals", "files", "users"].map((name) => Object.assign(get(`${name}-view`), { id: `${name}-view` })) : [], hidden: false,
   };
   get("files-view").hidden = true;
-  const context = vm.createContext({ document, URLSearchParams, window: { confirm: () => true }, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, fetch: async (path, options = {}) => {
+  const context = vm.createContext({ document, URLSearchParams, window: { confirm }, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, fetch: async (path, options = {}) => {
     calls.push({ path, options });
     if (deferred === "get" && path === "/api/skill-proposals" && !options.method || deferred === "draft" && path.endsWith("/skill-draft") || deferred === "submit" && path.endsWith("/submit") || deferred === "files" && path === "/api/files" && !options.method || deferred === "upload" && path === "/api/files" && options.method === "POST" || deferred === "advice" && path === "/api/db-advice") await pending;
     return { ok: true, status: 200, json: async () => responses[path] || { id: "new", status: "pending" } };
@@ -294,6 +295,54 @@ function proposalHarness(role, proposals, deferred = false, files = [], activity
   const button = (item, label) => item.textContent === label && item.listeners?.click ? item : item.children?.map((child) => button(child, label)).find(Boolean);
   return { get, calls, release, texts, button, sessionId };
 }
+
+test("tester has no agent sessions, run fetches, or skill draft form", async () => {
+  const h = proposalHarness("tester", [{ id: "mine", user: "alice", title: "Earlier proposal", status: "pending" },
+    { id: "legacy", user: "alice", title: "Earlier private draft", status: "draft" }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.button(h.get("proposal-preview"), "Submit for review"), undefined);
+  assert.ok(h.button(h.get("proposal-preview"), "Discard draft"));
+  assert.equal(h.get("sessions-nav").hidden, true);
+  assert.equal(h.get("proposal-form-section").hidden, true);
+  assert.equal(h.calls.some(({ path }) => path === "/api/sessions" || path === "/api/runs"), false);
+  assert.ok(h.texts(h.get("skill-proposals")).includes("Earlier proposal"));
+  await h.get("new-session").listeners.click();
+  await h.get("proposal-form").listeners.submit({ preventDefault() {} });
+  assert.equal(h.calls.some(({ path }) => path === "/api/sessions" || path.includes("/skill-draft")), false);
+  assert.notEqual(h.get("form-dialog").open, true);
+});
+
+test("promoted admin sees historical advisory session without message or draft controls", async () => {
+  const h = proposalHarness("admin", [], false, [], [], [], () => true, "advisory");
+  await new Promise((resolve) => setImmediate(resolve));
+  await h.get("session-list").children[0].listeners.click();
+  assert.equal(h.get("message-form").hidden, true);
+  assert.equal(h.get("suggest-session-skill").hidden, true);
+  assert.equal(h.get("proposal-session").children.length, 1);
+});
+
+test("admin can confirm a user deletion; self and tester cannot", async () => {
+  const users = [{ id: "11111111-1111-4111-8111-111111111111", username: "old-demo", role: "tester", disabled: false },
+    { id: "22222222-2222-4222-8222-222222222222", username: "alice", role: "admin", disabled: false }];
+  let warning;
+  const h = proposalHarness("admin", [], false, [], [], users, (text) => { warning = text; return true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  const rows = h.get("users").children;
+  const button = h.button(rows[0], "Delete");
+  assert.ok(button);
+  assert.equal(h.button(rows[1], "Delete"), undefined, "self-deletion must not be offered");
+  await button.listeners.click();
+  assert.match(warning, /old-demo/);
+  assert.match(warning, /permanent/i);
+  assert.match(warning, /Hermes CLI/i, "external Hermes history must be disclosed");
+  const sent = h.calls.find(({ path, options }) => path === `/api/users/${users[0].id}/delete` && options.method === "POST");
+  assert.equal(sent.options.headers["X-CSRF-Token"], "csrf");
+  assert.equal(sent.options.body, undefined);
+  const tester = proposalHarness("tester", [], false, [], [], users);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(tester.get("users-nav").hidden, true);
+  assert.equal(tester.calls.some(({ path }) => path === "/api/users"), false);
+});
 
 test("Activity shows the owner's timed agent trail and only aggregate peer highlights", async () => {
   const sessionId = "22222222-2222-4222-8222-222222222222";
@@ -418,9 +467,9 @@ test("owner generates a session draft and previews it without submitting", async
   for (const id of ["skill-proposals-view", "proposal-form", "proposal-session", "proposal-preview", "suggest-session-skill", "skill-proposals"])
     assert.match(html, new RegExp(`id="${id}"`));
   assert.doesNotMatch(html, /id="proposal-(title|guidance|evidence)"/);
-  const h = proposalHarness("tester", [{ id: "one", user: "alice", title: "Version check", guidance: "Check vendor availability", evidence: "Vendor matrix", status: "pending" }]);
+  const h = proposalHarness("admin", [{ id: "one", user: "alice", title: "Version check", guidance: "Check vendor availability", evidence: "Vendor matrix", status: "pending" }]);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(h.get("proposal-review").hidden, true);
+  assert.equal(h.get("proposal-review").hidden, false);
   assert.ok(h.texts(h.get("skill-proposals")).includes("Vendor matrix"));
   assert.ok(h.texts(h.get("skill-proposals")).includes("pending"));
   h.get("proposal-session").value = h.sessionId;
@@ -438,7 +487,7 @@ test("owner generates a session draft and previews it without submitting", async
 });
 
 test("session-pane suggestion opens generated preview; owner submits only by explicit click", async () => {
-  const h = proposalHarness("tester", []);
+  const h = proposalHarness("admin", []);
   await new Promise((resolve) => setImmediate(resolve));
   await h.get("session-list").children[0].listeners.click();
   assert.equal(h.get("suggest-session-skill").hidden, false);
@@ -455,7 +504,7 @@ test("session-pane suggestion opens generated preview; owner submits only by exp
 });
 
 test("owner can discard a generated draft without review", async () => {
-  const h = proposalHarness("tester", []);
+  const h = proposalHarness("admin", []);
   await new Promise((resolve) => setImmediate(resolve));
   h.get("proposal-session").value = h.sessionId;
   await h.get("proposal-form").listeners.submit({ preventDefault() {} });
@@ -480,17 +529,34 @@ test("admin reviews pending proposal with independently edited guidance", async 
   approved.value = "Check vendor release matrix first; if unavailable, use documented upgrade path.";
   const note = review.children[0].children.find((el) => el.tagName === "INPUT");
   note.value = "Verified against release matrix";
-  await h.button(review, "Approve").listeners.click();
+  await h.button(review, "Approve & add to skill").listeners.click();
   const sent = h.calls.find(({ path }) => path.endsWith("/decision"));
   assert.equal(sent.path, "/api/skill-proposals/11111111-1111-4111-8111-111111111111/decision");
   assert.deepEqual(JSON.parse(sent.options.body), { decision: "approved", approved_text: approved.value, review_note: note.value });
+});
+
+test("reviewer explicitly copies a workflow draft before approving the final text", async () => {
+  const guidance = "For this LabPilot lab, access the standalone database over SSH using the same method as MX and Gateway.";
+  const h = proposalHarness("admin", [{ id: "11111111-1111-4111-8111-111111111111", user: "bob", title: "DB SSH workflow", guidance,
+    evidence: "Operator-stated workflow; access not tested", status: "pending" }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  const review = h.get("proposal-review");
+  const approved = review.children[0].children.find((el) => el.tagName === "TEXTAREA");
+  assert.equal(approved.value, "", "requester text is not automatically approved");
+  await h.button(review, "Use suggested wording").listeners.click();
+  assert.equal(approved.value, guidance);
+  const note = review.children[0].children.find((el) => el.tagName === "INPUT");
+  note.value = "Reviewed this operator procedure for the private lab";
+  await h.button(review, "Approve & add to skill").listeners.click();
+  const sent = h.calls.find(({ path }) => path.endsWith("/decision"));
+  assert.equal(JSON.parse(sent.options.body).approved_text, guidance);
 });
 
 test("admin sees own pending proposal but cannot review it", async () => {
   const h = proposalHarness("admin", [{ id: "mine", user: "alice", title: "Needs peer review", guidance: "Draft guidance", evidence: "Vendor documentation", status: "pending" }]);
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(h.texts(h.get("skill-proposals")).includes("Needs peer review"));
-  assert.equal(h.button(h.get("proposal-review"), "Approve"), undefined);
+  assert.equal(h.button(h.get("proposal-review"), "Approve & add to skill"), undefined);
 });
 
 test("admin can retry only the recorded reviewed wording after publication failure", async () => {
@@ -502,7 +568,7 @@ test("admin can retry only the recorded reviewed wording after publication failu
   await h.button(h.get("skill-proposals"), "Retry publication").listeners.click();
   const sent = h.calls.find(({ path }) => path.endsWith("/decision"));
   assert.deepEqual(JSON.parse(sent.options.body), { decision: "approved", approved_text: "Verified exact patch and upgrade path before confirming.", review_note: "Thales notes checked" });
-  assert.equal(h.button(h.get("proposal-review"), "Approve"), undefined);
+  assert.equal(h.button(h.get("proposal-review"), "Approve & add to skill"), undefined);
 });
 
 test("expired session ignores a late proposal-list response", async () => {
@@ -529,7 +595,7 @@ test("tester never renders another user's proposal even if returned by API", asy
 });
 
 test("logout during draft generation keeps a late response out of the next account", async () => {
-  const h = proposalHarness("tester", [], "draft");
+  const h = proposalHarness("admin", [], "draft");
   await new Promise((resolve) => setImmediate(resolve));
   h.get("proposal-session").value = h.sessionId;
   const submit = h.get("proposal-form").querySelector('button[type="submit"]');
@@ -544,7 +610,7 @@ test("logout during draft generation keeps a late response out of the next accou
 });
 
 test("logout during draft submission keeps a late response out of the next account", async () => {
-  const h = proposalHarness("tester", [{ id: "draft-id", user: "alice", title: "Private draft", guidance: "Private guidance", evidence: "Private evidence", status: "draft" }], "submit");
+  const h = proposalHarness("admin", [{ id: "draft-id", user: "alice", title: "Private draft", guidance: "Private guidance", evidence: "Private evidence", status: "draft" }], "submit");
   await new Promise((resolve) => setImmediate(resolve));
   const submitting = h.button(h.get("proposal-preview"), "Submit for review").listeners.click();
   await h.get("logout").listeners.click();

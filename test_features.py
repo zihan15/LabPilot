@@ -44,6 +44,48 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.cookie, self.csrf = cookie.split(';')[0], data['csrfToken']
 
+    def legacy_tester_session(self, user, title='Historical advisory'):
+        from server import now, record_id
+        sid = record_id()
+        with self.store.db() as db:
+            db.execute('INSERT INTO chat_sessions (id,user_id,lab_id,title,created_at,mode) VALUES (?,?,?,?,?,?)',
+                       (sid, user['id'], 'dam-standalone', title, now(), 'advisory'))
+        return sid
+
+    def legacy_tester_run(self, sid, user, title='Historical question'):
+        from server import now, record_id
+        rid, stamp = record_id(), now()
+        with self.store.db() as db:
+            db.execute('INSERT INTO runs (id,session_id,user_id,gateway_id,lab_id,status,steps_json,output,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                       (rid,sid,user['id'],'web','dam-standalone','queued','[]','',stamp,stamp))
+            db.execute('INSERT INTO messages VALUES (?,?,?,?,?)', (record_id(),sid,'user',title,stamp))
+        return rid
+
+    def test_non_admin_cannot_use_sessions_or_legacy_runs(self):
+        tester = self.store.authenticate('teammate', 'another correct horse battery')
+        sid = self.legacy_tester_session(tester)
+        rid = self.legacy_tester_run(sid, tester)
+        self.store.step(rid, 'completed', 'Historical result')
+        self.login('teammate', 'another correct horse battery')
+        for method, path, payload in [
+            ('GET', '/api/sessions', None),
+            ('POST', '/api/sessions', {'lab_id':'dam-standalone'}),
+            ('GET', '/api/sessions/'+sid, None),
+            ('POST', '/api/sessions/'+sid+'/messages', {'text':'Continue'}),
+            ('POST', '/api/sessions/'+sid+'/login', {'origin':'https://example.test','identifier':'operator','password':'example'}),
+            ('POST', '/api/sessions/'+sid+'/skill-draft', {}),
+            ('GET', '/api/runs', None), ('GET', '/api/runs/'+rid, None),
+            ('GET', '/api/runs/'+rid+'/screenshot', None),
+        ]:
+            self.assertEqual(self.request(method, path, payload)[0], 403, (method,path))
+        with self.assertRaises(PermissionError): self.store.create_session(tester, 'dam-standalone', 'New')
+        with self.assertRaises(PermissionError): self.store.create_run(sid, tester, 'dam-standalone', 'Again')
+        self.assertEqual(self.request('GET', '/api/requests')[0], 200)
+        self.assertEqual(self.request('GET', '/api/skill-proposals')[0], 200)
+        self.assertEqual(self.request('GET', '/api/activity')[1]['events'], [])
+        self.cookie = self.csrf = None; self.login()
+        self.assertEqual(self.request('POST', '/api/sessions', {'lab_id':'dam-standalone'})[0], 201)
+
     def test_default_tester_and_admin_user_lifecycle(self):
         self.login()
         code, data, _ = self.request('POST', '/api/users', {'username': 'newtester', 'password': 'long unique testing password'})
@@ -75,6 +117,168 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/users', {'username': 'newtester', 'password': 'long unique testing password', 'role': 'viewer'})[0], 400)
         self.assertEqual(self.request('GET', '/api/me')[1]['user']['role'], 'admin')
 
+    def test_delete_user_erases_portal_sessions_and_artifacts_but_not_other_users_records(self):
+        self.login()
+        owner = self.store.authenticate('owner', 'correct horse battery staple')
+        target = self.store.authenticate('teammate', 'another correct horse battery')
+        uid = target['id']
+        self.assertEqual(self.request('POST', f'/api/users/{uid}/delete', {})[0], 400)  # no payload
+        self.assertEqual(self.request('POST', f'/api/users/{owner["id"]}/delete')[0], 409)
+        sid = self.legacy_tester_session(target, 'Private demo')
+        rid = self.legacy_tester_run(sid, target, 'Private question')
+        self.store.step(rid, 'completed', 'Answer saved', 'Private answer')
+        screenshot = self.store.screenshot_target(rid)
+        screenshot.write_bytes(b'private demo image')
+        own_request = self.store.add_request(target, 'dam-standalone', 'Private purpose')
+        action = self.store.new_action(target, 'dam-standalone', 'start')
+        self.store.finish_action(action, 'starting', 'Private action')
+        other_request = self.store.add_request(owner, 'dam-standalone', 'Keep this request')
+        with self.store.db() as db:
+            db.execute('UPDATE access_requests SET reviewed_by=? WHERE id=?', (uid, other_request))
+            db.execute('INSERT INTO portal_files VALUES (?,?,?,?,?,?)',
+                ('11111111-1111-4111-8111-111111111111',uid,'demo.bin',4,'0'*64,'2026-10-24T00:00:00Z'))
+            db.execute('INSERT INTO skill_proposals (id,user_id,session_id,title,guidance,evidence,status,created_at) VALUES (?,?,?,?,?,?,?,?)',
+                ('22222222-2222-4222-8222-222222222222',uid,sid,'Private lesson','Private generated text','Session observation','pending','2026-10-24T00:00:00Z'))
+        blob = self.store.file_dir() / '11111111-1111-4111-8111-111111111111'
+        blob.write_bytes(b'demo')
+        self.cookie = self.csrf = None; self.login('teammate', 'another correct horse battery')
+        old_cookie = self.cookie
+        self.assertEqual(self.request('POST', f'/api/users/{uid}/delete')[0], 403)
+        self.cookie = self.csrf = None; self.login()
+        self.assertEqual(self.request('POST', f'/api/users/{uid}/delete',csrf='bad')[0], 403)
+        code, data, _ = self.request('POST', f'/api/users/{uid}/delete')
+        self.assertEqual(code, 200); self.assertEqual(data['deleted'], True)
+        self.assertNotIn(uid, [u['id'] for u in self.request('GET', '/api/users')[1]['users']])
+        self.assertEqual(self.request('GET', '/api/me',cookie=old_cookie)[0], 401)
+        self.assertEqual(self.request('POST', '/api/login', {'username':'teammate','password':'another correct horse battery'})[0], 401)
+        self.assertFalse(screenshot.exists()); self.assertFalse(blob.exists())
+        with self.store.db() as db:
+            for table, field, identifier in [('users','id',uid),('auth_sessions','user_id',uid),('chat_sessions','user_id',uid),
+                    ('messages','session_id',sid),('runs','user_id',uid),('access_requests','id',own_request),
+                    ('portal_files','user_id',uid),('skill_proposals','user_id',uid),('lab_actions','user_id',uid)]:
+                self.assertEqual(db.execute(f'SELECT COUNT(*) FROM {table} WHERE {field}=?',(identifier,)).fetchone()[0],0,table)
+            kept = db.execute('SELECT reviewed_by,reviewer_label FROM access_requests WHERE id=?',(other_request,)).fetchone()
+            self.assertIsNotNone(kept); self.assertIsNone(kept['reviewed_by'])
+            self.assertEqual(kept['reviewer_label'],'teammate')
+        self.assertEqual(next(r for r in self.request('GET','/api/requests')[1]['requests'] if r['id']==other_request)['reviewer'],'teammate')
+
+    def test_delete_user_refuses_active_runs_and_self_deletion(self):
+        self.login()
+        target = self.store.authenticate('teammate', 'another correct horse battery')
+        sid = self.legacy_tester_session(target, 'Busy')
+        rid = self.legacy_tester_run(sid, target, 'Still working')
+        self.assertEqual(self.request('POST', f'/api/users/{target["id"]}/delete')[0], 409)
+        self.assertIsNotNone(self.store.session(sid,target))
+        self.store.step(rid, 'completed', 'Done')
+        action = self.store.new_action(target,'dam-standalone','start')
+        self.assertEqual(self.request('POST', f'/api/users/{target["id"]}/delete')[0], 409)
+        self.store.finish_action(action,'starting','Acknowledged')
+        owner = self.store.authenticate('owner', 'correct horse battery staple')
+        self.assertEqual(self.request('POST', f'/api/users/{owner["id"]}/delete')[0], 409)
+        self.assertEqual(self.request('POST', f'/api/users/{target["id"]}/delete')[0], 200)
+        self.assertEqual(self.request('POST', f'/api/users/{target["id"]}/delete')[0], 404)
+        with self.assertRaises(PermissionError): self.store.create_session(target, 'dam-standalone', 'Ghost')
+        with self.assertRaises(PermissionError): self.store.add_request(target, 'dam-standalone', 'Ghost')
+        with self.assertRaises(PermissionError): self.store.create_run(sid,target,'dam-standalone','Ghost')
+        with self.assertRaises(PermissionError): self.store.new_action(target,'dam-standalone','start')
+
+    def test_delete_admin_clears_linked_portal_history_and_fulfillment_pointer(self):
+        self.login()
+        owner = self.store.authenticate('owner', 'correct horse battery staple')
+        target = self.store.create_user('oldadmin','long unique test password','admin')
+        sid = self.store.create_session(target,'dam-standalone','Old admin')['id']
+        self.store.set_hermes_link(sid,'20261024_000000_abcdef')
+        other = self.store.add_request(owner,'dam-standalone','Preserve approved ticket')
+        with self.store.db() as db:
+            db.execute('UPDATE access_requests SET fulfillment_session=? WHERE id=?',(sid,other))
+        self.assertEqual(self.request('POST',f'/api/users/{target["id"]}/delete')[0],200)
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM hermes_links WHERE session_id=?',(sid,)).fetchone()[0],0)
+            self.assertIsNone(db.execute('SELECT fulfillment_session FROM access_requests WHERE id=?',(other,)).fetchone()[0])
+
+    def test_delete_requires_same_live_admin_login_at_commit(self):
+        self.login()
+        reviewer = self.store.authenticate('owner','correct horse battery staple')
+        target = self.store.authenticate('teammate','another correct horse battery')
+        cookie = self.cookie
+        self.store.logout(cookie)
+        with self.assertRaises(PermissionError): self.store.delete_user(target['id'], reviewer, cookie)
+        self.assertIsNotNone(self.store.authenticate('teammate','another correct horse battery'))
+
+    def test_delete_artifact_cleanup_recovers_after_restart(self):
+        self.login()
+        target = self.store.authenticate('teammate','another correct horse battery')
+        sid = self.legacy_tester_session(target, 'Private')
+        rid = self.legacy_tester_run(sid, target, 'Private test')
+        self.store.step(rid,'completed','Done')
+        screenshot = self.store.screenshot_target(rid)
+        screenshot.write_bytes(b'private')
+        original = Path.unlink
+        def blocked(path,*args,**kwargs):
+            if path == screenshot: raise OSError('test-only unlink failure')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'unlink',blocked):
+            code,result,_ = self.request('POST',f'/api/users/{target["id"]}/delete')
+        self.assertEqual(code,200); self.assertFalse(result['cleanup_complete'])
+        self.assertTrue(screenshot.exists())
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM deleted_artifacts WHERE item_id=?',(rid,)).fetchone()[0],1)
+        PortalStore(self.store.path)
+        self.assertFalse(screenshot.exists())
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM deleted_artifacts WHERE item_id=?',(rid,)).fetchone()[0],0)
+
+    def test_deleted_account_cannot_get_a_new_login_from_stale_authentication(self):
+        self.login()
+        target = self.store.authenticate('teammate','another correct horse battery')
+        self.assertEqual(self.request('POST',f'/api/users/{target["id"]}/delete')[0],200)
+        with self.assertRaises(PermissionError): self.store.new_auth(target)
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM auth_sessions WHERE user_id=?',(target['id'],)).fetchone()[0],0)
+
+    def test_password_reset_invalidates_an_inflight_login_and_cloud_action(self):
+        self.login()
+        owner = self.store.authenticate('owner','correct horse battery staple')
+        old_cookie = self.cookie
+        self.store.update_user(owner['id'], {'password':'new long password for the owner'})
+        with self.assertRaises(PermissionError): self.store.new_auth(owner)
+        with self.assertRaises(PermissionError): self.store.new_action(owner,'dam-standalone','stop',old_cookie)
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM lab_actions WHERE user_id=?',(owner['id'],)).fetchone()[0],0)
+
+    def test_demoted_admin_cannot_start_a_stop_action_with_stale_role(self):
+        self.login()
+        self.store.create_user('secondadmin','long unique test password','admin')
+        owner = self.store.authenticate('owner','correct horse battery staple')
+        old_cookie = self.cookie
+        self.store.update_user(owner['id'], {'role':'tester'})
+        with self.assertRaises(PermissionError): self.store.new_action(owner,'dam-standalone','stop',old_cookie)
+
+    def test_unlink_failure_does_not_block_restart_or_lose_upload_cleanup_intent(self):
+        self.login()
+        target = self.store.authenticate('teammate','another correct horse battery')
+        fid = '11111111-1111-4111-8111-111111111111'
+        blob = self.store.file_dir() / fid
+        blob.write_bytes(b'demo')
+        with self.store.db() as db:
+            db.execute('INSERT INTO portal_files VALUES (?,?,?,?,?,?)',(fid,target['id'],'demo.bin',4,'0'*64,'2026-10-24T00:00:00Z'))
+        import os
+        original = Path.unlink
+        raw_unlink = os.unlink
+        def blocked(path,*args,**kwargs):
+            if path == blob: raise OSError('test-only unlink failure')
+            return original(path,*args,**kwargs)
+        def blocked_raw(path,*args,**kwargs):
+            if str(path) == str(blob): raise OSError('test-only unlink failure')
+            return raw_unlink(path,*args,**kwargs)
+        with patch.object(Path,'unlink',blocked), patch('server.os.unlink',blocked_raw):
+            code,result,_ = self.request('POST',f'/api/users/{target["id"]}/delete')
+            self.assertEqual(code,200); self.assertFalse(result['cleanup_complete'])
+            PortalStore(self.store.path)
+        self.assertTrue(blob.exists())
+        PortalStore(self.store.path)
+        self.assertFalse(blob.exists())
+
     def test_admin_decides_request_once_tester_sees_review(self):
         self.login('teammate', 'another correct horse battery')
         code, data, _ = self.request('POST', '/api/requests', {'lab_id': 'dam-mxha', 'note': 'Need test lab'})
@@ -90,16 +294,15 @@ class FeatureTests(unittest.TestCase):
 
     def test_activity_filters_and_admin_privacy(self):
         self.login('teammate', 'another correct horse battery')
-        code, data, _ = self.request('POST', '/api/sessions', {'lab_id': 'dam-mxha', 'title': 'Private title'})
-        self.assertEqual(code, 201); sid = data['session']['id']
-        self.assertEqual(self.request('POST', '/api/sessions/' + sid + '/messages', {'text': 'Private question'})[0], 202)
-        for _ in range(50):
-            events = self.request('GET', '/api/activity')[1]['events']
-            if events and events[0]['status'] in ('completed', 'failed'): break
-            time.sleep(.02)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['kind'], 'advisory')
-        self.assertNotIn('Private question', json.dumps(events))
+        user = self.store.identify(self.cookie)
+        sid = self.legacy_tester_session(user, 'Private title')
+        rid = self.legacy_tester_run(sid, user, 'Private question')
+        with self.store.db() as db:
+            db.execute('UPDATE chat_sessions SET lab_id=? WHERE id=?', ('dam-mxha', sid))
+            db.execute('UPDATE runs SET lab_id=? WHERE id=?', ('dam-mxha', rid))
+        self.store.step(rid, 'completed', 'Historical answer')
+        events = self.request('GET', '/api/activity')[1]['events']
+        self.assertEqual(events, [], 'historical agent runs are hidden from non-admin activity')
         self.cookie = self.csrf = None; self.login()
         code, data, _ = self.request('GET', '/api/activity?user=teammate&lab_id=dam-mxha&status=completed&kind=advisory')
         self.assertEqual(code, 200); self.assertEqual(len(data['events']), 1)
@@ -113,6 +316,7 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.request('GET', '/api/activity?user=owner')[0], 403)
 
     def test_activity_shows_owner_recorded_agent_trail_but_only_counts_to_other_admins(self):
+        self.store.update_user(self.store.authenticate('teammate','another correct horse battery')['id'], {'role':'admin'})
         self.login('teammate', 'another correct horse battery')
         owner = self.store.identify(self.cookie)
         sid = self.store.create_session(owner, 'dam-mxha', 'Private investigation')['id']
@@ -174,6 +378,36 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(events[0]['user'], 'teammate')
         self.assertIn('no resource', events[0]['summary'].lower())
         self.assertEqual(self.request('POST', '/api/environments/requests', spec | {'lab_id':'unknown'})[0], 400)
+    def test_standalone_fulfillment_is_a_single_explicit_trial_launch_handoff(self):
+        spec = {'lab_id':'new','topology':'standalone_mx','gateway_count':1,
+                'version':'14.19.1.150','purpose':'Demo'}
+        self.login('teammate','another correct horse battery')
+        rid = self.request('POST','/api/environments/requests',spec)[1]['id']
+        self.cookie=self.csrf=None; self.login()
+        self.assertEqual(self.request('POST',f'/api/requests/{rid}/decision',{'decision':'approved'})[0],200)
+        code,handoff,_=self.request('POST',f'/api/requests/{rid}/fulfillment',{})
+        self.assertEqual(code,201)
+        draft=handoff['draft'].lower()
+        self.assertIn('i authorize',draft)
+        self.assertIn('trial license',draft)
+        self.assertIn('hourly',draft)
+        self.assertIn('informational',draft)
+        self.assertIn('14.19.1.150',draft)
+        self.assertLessEqual(len(handoff['draft']),2000,'the authorizing draft must fit the portal message cap')
+        self.assertNotIn('separate explicit confirmation',draft)
+        self.assertNotIn('ttl enforcement',draft)
+        self.assertNotIn('max spend',draft)
+        self.assertEqual(self.request('GET','/api/requests')[1]['requests'][0]['status'],'approved')
+
+    def test_standalone_handoff_fits_message_limit_at_valid_input_bounds(self):
+        requester=self.store.create_user('a'*40,'long test-only password 1234','tester')
+        reviewer=self.store.authenticate('owner','correct horse battery staple')
+        spec={'lab_id':'new','topology':'standalone_mx','gateway_count':4,
+              'version':'V'+'1'*39,'purpose':'Demo'}
+        rid=self.store.add_request(requester,'new','Demo','environment',spec)
+        self.store.decide_request(rid,'approved',reviewer)
+        self.assertLessEqual(len(self.store.start_fulfillment(rid,reviewer)['draft']),2000)
+
     def test_legacy_viewer_migrates_to_tester_without_losing_session(self):
         self.login('teammate', 'another correct horse battery')
         cookie = self.cookie
