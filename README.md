@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/cfaf5556-1d27-4662-a7cc-ae930a163e27
 
 ## What is Hermes, and why a separate LabPilot?
 
-[Hermes Agent](https://hermes-agent.nousresearch.com/docs/) is the agent harness: it connects a model to tools, reusable skills, persistent context and optional messaging gateways. It can run through [Telegram, Slack or WhatsApp](https://hermes-agent.nousresearch.com/docs/user-guide/messaging) when each gateway is configured with appropriate access. **Those gateway conversations are not LabPilot sessions** and do not inherit this portal's roles, budgets or review workflow.
+[Hermes Agent](https://hermes-agent.nousresearch.com/docs/) is the agent harness: it connects a model to tools, reusable skills, persistent context and optional messaging gateways. It can run through [Telegram, Slack or WhatsApp](https://hermes-agent.nousresearch.com/docs/user-guide/messaging) when each gateway is configured with appropriate access. **Those gateway conversations are not LabPilot sessions** and do not inherit this portal's roles or review workflow.
 
 The portal gives the team a shared view of known labs and requests while keeping each admin's conversation private. It records bounded run progress and supports private file exchange and reviewed Imperva troubleshooting lessons. The portal's roles do not isolate the underlying host or full-admin agent.
 
