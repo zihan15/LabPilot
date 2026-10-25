@@ -2,7 +2,7 @@
 
 LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab visibility, controls for known environments, admin agent sessions, request handoffs and attributed activity into one place. Engineers can see what is running, investigate with an agent, and turn useful session workflows into skill proposals. A different admin reviews each proposal before it becomes shared guidance.
 
-**This is a vibe-coded, AI-assisted pilot with limited portal access controls and orchestration**, not a finished lab automation or security product. Admin agents inherit the host's permissions, and approving a request does not itself provision an environment. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
+**This is a AI-assisted pilot with limited portal access controls and orchestration**, not a finished lab automation or security product. Admin agents inherit the host's permissions, and approving a request does not itself provision an environment. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
 
 ## Demo
 
