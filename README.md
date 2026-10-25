@@ -4,10 +4,6 @@ LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab vis
 
 **This is a vibe-coded, AI-assisted pilot with limited portal access controls and orchestration**, not a finished lab automation or security product. Admin agents inherit the host's permissions, and approving a request does not itself provision an environment. This repository contains the portal (`server.py` and `static/`), not the older `../app.py` workbench.
 
-## Private demo access
-
-- **Private demo:** [Open LabPilot on localhost](http://127.0.0.1:8090) **after** an authenticated tunnel is running on that local port. Ask the lab operator for an account and follow [Private local run](#private-local-run); there is no public demo URL. If you forward a different local port, use that port instead. The repository alone cannot connect to the private lab.
-
 ## Demo
 
 **Admin-focused video:** Coming soon. The owner will add a link after reviewing the recording for private accounts, credentials and cloud identifiers. No video is bundled here; a walkthrough of the portal is not proof that a new lab was provisioned or a DAM policy fired.
@@ -89,3 +85,7 @@ git diff --check
 ```
 
 These tests mock cloud/agent interactions; they are **not** live EC2 or product validation. The portal is not production security architecture: application checks, CSRF, cookies and loopback binding do not isolate a shared host identity. Details and release blockers are in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Private demo access
+
+- **Private demo:** [Open LabPilot on localhost](http://127.0.0.1:8090) **after** an authenticated tunnel is running on that local port. Ask the lab operator for an account and follow [Private local run](#private-local-run); there is no public demo URL. If you forward a different local port, use that port instead. The repository alone cannot connect to the private lab.
