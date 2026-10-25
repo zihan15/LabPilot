@@ -6,7 +6,7 @@ LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab vis
 
 ## Demo
 
-**labpilotdemo.mp4 (5:23):** Portal inventory, trusted-admin Hermes sessions, policy-testing and reviewed skill proposals, followed by a separate Telegram/Hermes lab workflow. The Telegram gateway is not part of the portal. This recording shows a private test lab; the public source does not independently verify every on-screen product result or an end-to-end deploy/test/cleanup pipeline.
+**labpilotdemo.mp4 (5:23):** Portal inventory, trusted-admin Hermes sessions, policy-testing and reviewed skill proposals, followed by a separate Telegram/Hermes lab workflow. The Telegram gateway is not part of the portal. This recording shows a private test lab.
 
 https://github.com/user-attachments/assets/cfaf5556-1d27-4662-a7cc-ae930a163e27
 
