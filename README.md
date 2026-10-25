@@ -6,7 +6,9 @@ LabPilot is a private workspace for Imperva DAM engineers. It brings AWS lab vis
 
 ## Demo
 
-**Admin-focused video:** Coming soon. The owner will add a link after reviewing the recording for private accounts, credentials and cloud identifiers. No video is bundled here; a walkthrough of the portal is not proof that a new lab was provisioned or a DAM policy fired.
+**LabPilot demo (5:23):** Portal inventory, trusted-admin Hermes sessions, policy-testing and reviewed skill proposals, followed by a separate Telegram/Hermes lab workflow. The Telegram gateway is not part of the portal. This recording shows a private test lab; the public source does not independently verify every on-screen product result or an end-to-end deploy/test/cleanup pipeline.
+
+https://github.com/user-attachments/assets/5d0a8f76-510e-4f85-bb2c-0d840adc32e8
 
 ## What is Hermes, and why a separate LabPilot?
 
@@ -73,7 +75,7 @@ Open `http://127.0.0.1:8090` locally. A private-host owner account may already e
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) — private-host prerequisites, GitHub handoff and security gates.
 - [HANDOVER.md](HANDOVER.md) — private runtime locations and a source-safe implementation checklist for other Hermes operators.
-- UI screenshots from the private pilot are deliberately excluded from this public-source snapshot; no live lab status is implied by the repository.
+- No screenshot or video binaries are committed to Git; the demo above is a GitHub-hosted attachment. The repository itself implies no current live lab status.
 
 ## Checks
 
